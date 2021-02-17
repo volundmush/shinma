@@ -1,0 +1,6 @@
+uvloop
+aiohttp
+tinydb
+pytz
+pyoctree
+ujson

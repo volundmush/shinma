@@ -1,0 +1,17 @@
+{
+  "CoreEveryone": {
+    "name": "Everyone",
+    "prototypes": "CoreSpecial",
+    "acl_class": "CoreAclEveryone"
+  },
+  "CoreSystem": {
+    "name": "System",
+    "prototypes": "CoreSpecial",
+    "acl_class": "CoreAclSystem"
+  },
+  "CoreOwner": {
+    "name": "Owner",
+    "prototypes": "CoreSpecial",
+    "acl_class": "CoreAclOwner"
+  }
+}

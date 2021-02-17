@@ -1,0 +1,23 @@
+{
+  "CoreSpecial": {
+    "namespace": "special",
+    "objid_prefix": "special"
+  },
+  "CoreAccount": {
+    "objid_prefix": "account",
+    "namespace": "account",
+    "tags": ["account"]
+  },
+  "CoreConnection": {
+    "objid_prefix": "connection",
+    "tags": ["connection"]
+  },
+  "CoreSession": {
+    "objid_prefix": "session",
+    "tags": ["session"]
+  },
+  "CorePlayView": {
+    "objid_prefix": "playview",
+    "tags": ["playview"]
+  }
+}
