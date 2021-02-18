@@ -43,7 +43,7 @@ if __name__ == "__main__":
     app_core = core_class(settings, loop)
 
     # Step 3: Load application from core.
-    app_core.setup()
+    #app_core.setup()
 
     # Step 4: Start everything up and run forever.
     asyncio.run(app_core.start(), debug=True)

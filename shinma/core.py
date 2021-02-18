@@ -32,7 +32,7 @@ class BaseApplication:
     def setup(self):
         found_classes = list()
         # Import all classes from the given config object.
-        for category, d in self.config.classes.items():
+        for category, d in self.settings.CLASSES.items():
             for name, path in d.items():
                 found = import_from_module(path)
                 found.app = self
@@ -49,38 +49,11 @@ class BaseApplication:
             cls.class_init()
 
     async def start(self):
+        self.setup()
         start_services = sorted(self.services.values(), key=lambda s: s.start_order)
         await asyncio.gather(*(service.start() for service in start_services))
 
 
-class Application(BaseApplication):
+class ApplicationCore(BaseApplication):
     pass
 
-
-class GameModule:
-    version = "0.0.1"
-    requirements = dict()
-
-    def __init__(self, game, *args, **kwargs):
-        self.game = game
-        self.prototypes = dict()
-        self.objects = dict()
-        self.tags = dict()
-        self.namespaces = dict()
-        self.acl_classes = dict()
-        self.inventory_classes = dict()
-
-    def config(self):
-        pass
-
-    def load_prototypes(self):
-        pass
-
-    def patch_prototypes(self):
-        pass
-
-    def load_objects(self):
-        pass
-
-    def patch_objects(self):
-        pass
