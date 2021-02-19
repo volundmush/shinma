@@ -3,8 +3,6 @@ from shinma.core import BaseService
 from typing import Union, List, Dict
 import random
 import string
-import pathlib
-import os
 import importlib
 
 
@@ -347,6 +345,9 @@ class GameService(BaseService):
     def process_object_initial(self, objid, odef):
         pass
 
+    def process_objects_final(self):
+        pass
+
     def spawn_object(self, prototypes: Union[str, List[str]], name=None, objid: str = None, module=None):
         if isinstance(prototypes, str):
             prototypes = [prototypes]
@@ -367,8 +368,7 @@ class GameService(BaseService):
             objid = self.generate_id(prefix)
         if name is None:
             name = objid
-        obj = self.app.classes["game"]["object"](module, name, objid, prototypes)
-        # out.setup() might return an error, but if it doesn't, setup_reverse() is not allowed to fail.
+        obj = self.app.classes["game"]["object"](module, name, objid, final_prototypes)
         result, error = obj.setup()
         if error:
             return (None, f"Object Spawn error: {error}")

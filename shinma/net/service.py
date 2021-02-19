@@ -47,8 +47,12 @@ class Session:
         self.gameobject = None
 
     def create_gameobject(self):
-        self.gameobject = self.service.app.services["game"].spawn_object(self.service.app.settings.PROTOTYPES["session"], name=self.name)
+        obj, error = self.service.app.services["game"].spawn_object(self.service.app.settings.PROTOTYPES["session"], name=self.name)
+        if error:
+            return (None, error)
+        self.gameobject = obj
         self.gameobject.netobj = self
+        return (obj, None)
 
 
 class Connection:
@@ -88,6 +92,7 @@ class Connection:
         self.width = 78,
         self.height = 24
         self.screen_reader = False
+        self.task = None
 
         new_msg = {
             "id": self.name,
@@ -98,8 +103,12 @@ class Connection:
         self.incoming_queue.put_nowait(new_msg)
 
     def create_gameobject(self):
-        self.gameobject = self.service.app.services["game"].spawn_object(self.service.app.settings.PROTOTYPES["connection"], name=self.name)
+        obj, error = self.service.app.services["game"].spawn_object(self.service.app.settings.PROTOTYPES["connection"], name=self.name)
+        if error:
+            return (None, error)
+        self.gameobject = obj
         self.gameobject.netobj = self
+        return (obj, None)
 
     async def msg_client_json(self, msg):
         pass
@@ -195,6 +204,10 @@ class Connection:
     def login(self, sess):
         self.session = sess
 
+    def stop(self):
+        if self.task:
+            self.task.cancel()
+
 
 class NetService(BaseService):
 
@@ -250,9 +263,11 @@ class NetService(BaseService):
             else:
                 conn = self.app.classes["net"]["connection"](data)
                 try:
-                    conn.create_gameobject()
+                    obj, err = conn.create_gameobject()
+                    if err:
+                        raise Exception(f"Could not create gameobject: {err}")
                     self.connections[data["id"]] = conn
-                    asyncio.create_task(conn.start())
+                    conn.task = asyncio.create_task(conn.start())
                 except Exception as e:
                     print(f"something done goofed creating object: {e}")
                     await self.outgoing_queue.put({"kind": "client_disconnected", "id": data["id"],
@@ -283,9 +298,11 @@ class NetService(BaseService):
                 else:
                     conn = self.app.classes["net"]["connection"](v)
                     try:
-                        conn.create_gameobject()
+                        obj, error = conn.create_gameobject()
+                        if error:
+                            raise Exception(f"could not create object: {error}")
                         self.connections[v["id"]] = conn
-                        asyncio.create_task(conn.start())
+                        conn.task = asyncio.create_task(conn.start())
                     except Exception as e:
                         print(f"something done goofed creating object: {e}")
                         await self.outgoing_queue.put({"kind": "client_disconnected", "id": v["id"],
@@ -300,8 +317,6 @@ class NetService(BaseService):
             async with ClientSession(loop=asyncio.get_event_loop()) as session:
                 async with session.ws_connect(self.app.settings.PORTAL) as ws:
                     self.ws_link = ws
-                    #self.outgoing_task = asyncio.create_task(self.process_outgoing())
-                    #self.incoming_task = asyncio.create_task(self.process_incoming())
                     async for msg in ws:
                         if msg.type == WSMsgType.TEXT:
                             j_data = ujson.loads(msg.data)
@@ -318,5 +333,3 @@ class NetService(BaseService):
                         print(f"CURRENT CONNECTIONS: {self.connections}")
                     print("websocket loop reached end")
                     self.ws_link = None
-                    #self.incoming_task.cancel()
-                    #self.outgoing_task.cancel()

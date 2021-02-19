@@ -70,7 +70,7 @@ class GamePrototype:
         self.acl_class = None
         self.objects = set()
         self.tags = set()
-        self.cmdgroups = set()
+        self.cmdgroups = dict()
         self.scripts = dict()
 
     def __str__(self):
@@ -118,7 +118,7 @@ class Msg:
 class GameObjectDef:
     __slots__ = ["module", "name", "keywords", "objid", "namespace", "attributes", "relations", "prototypes",
                  "acl", "location", "service", "inventories", "date_created",
-                 "date_modified", "views", "cmdsets", "scripts", "saved_locations"]
+                 "date_modified", "views", "cmdgroups", "scripts", "saved_locations"]
 
     def __init__(self, module, name: str, objid: str, prototypes: List[str]):
         self.module = module  # if this is none, the GameObject is unique to this game instance. Such as: Accounts
@@ -135,7 +135,7 @@ class GameObjectDef:
         self.inventories = dict()
         self.date_created = None
         self.date_modified = None
-        self.cmdsets = set()
+        self.cmdgroups = dict()
         self.service = None
         self.scripts = dict()
 
@@ -151,7 +151,6 @@ class ScriptHandler:
 
     def dispatch_event(self, event: str, *args, **kwargs):
         return [v.on_object_event(self.obj, event, *args, **kwargs) for k, v in self.scripts.items()]
-
 
 
 class Attribute:
@@ -171,27 +170,29 @@ class AttributeCategory:
 
 
 class AttributeHandler:
-    __slots__ = ["parent", "categories"]
+    __slots__ = ["obj", "categories"]
 
-    def __init__(self, parent):
-        self.parent = parent
+    def __init__(self, obj):
+        self.obj = obj
         self.categories = dict()
 
 
-class RelationKind:
-    __slots__ = ["attributes", "reverse"]
+class Relation:
+    __slots__ = ["attributes", "reverse", "has", "gameobj"]
 
-    def __init__(self):
+    def __init__(self, gameobj):
+        self.gameobj = gameobj
+        self.has = False
         self.attributes = AttributeHandler(self)
         self.reverse = set()
 
 
 class RelationHandler:
-    __slots__ = ["parent", "target", "kinds"]
+    __slots__ = ["obj", "relations"]
 
-    def __init__(self, parent, target):
-        self.parent = parent
-        self.kinds = dict()
+    def __init__(self, obj):
+        self.obj = obj
+        self.relations = dict()
 
 
 class ACLEntry:
@@ -204,14 +205,32 @@ class ACLEntry:
         self.deny = deny
 
 
+class LocationHandler:
+
+    def __init__(self, obj):
+        self.obj = obj
+
+
+class ContentsHandler:
+
+    def __init__(self, obj):
+        self.obj = obj
+
+
+class CmdHandler:
+
+    def __init__(self, obj):
+        self.obj = obj
+
+
 class ACLHandler:
     """
     This should be sub-classed to
     """
-    __slots__ = ["parent", "entries", "entries_sorted", "reverse"]
+    __slots__ = ["obj", "entries", "entries_sorted", "reverse"]
 
-    def __init__(self, parent):
-        self.parent = parent
+    def __init__(self, obj):
+        self.obj = obj
         self.entries = defaultdict(dict)
         self.entries_sorted = list()
         self.reverse = set()
@@ -219,7 +238,7 @@ class ACLHandler:
 
 class GameObject:
     __slots__ = ["module", "name", "keywords", "objid", "namespace", "attributes", "relations", "prototypes",
-                 "acl", "location", "service", "inventories", "date_created",
+                 "acl", "location", "service", "contents", "date_created",
                  "date_modified", "views", "listeners", "netobj", "cmd", "scripts", "saved_locations"]
 
     def __init__(self, module, name: str, objid: str, prototypes: List[GamePrototype]):
@@ -231,13 +250,13 @@ class GameObject:
         self.attributes = self.app.classes["game"]["attributehandler"](self)
         self.relations = self.app.classes["game"]["relationhandler"](self)
         self.prototypes = prototypes
-        acl_class = self.app.classes["game"]["aclhandler"](self)
+        acl_class = self.app.classes["game"]["aclhandler"]
         for proto in prototypes:
             if proto.acl_class:
                 acl_class = proto.acl_class
         self.acl = acl_class(self)
         self.location = self.app.classes["game"]["locationhandler"](self)
-        self.inventories = self.app.classes["game"]["inventoryhandler"](self)
+        self.contents = self.app.classes["game"]["contentshandler"](self)
         self.date_created = None
         self.date_modified = None
         self.cmd = self.app.classes["game"]["cmdhandler"](self)
