@@ -7,7 +7,6 @@ from logging.handlers import TimedRotatingFileHandler
 
 
 class BaseService:
-    app = None
     init_order = 0
     setup_order = 0
     start_order = 0
@@ -22,7 +21,6 @@ class BaseService:
 class BaseApplication:
 
     def __init__(self, settings, loop):
-        BaseService.app = self
         self.settings = settings
         self.classes = defaultdict(dict)
         self.services = dict()
@@ -42,7 +40,7 @@ class BaseApplication:
 
         for name, v in sorted(self.classes['services'].items(), key=lambda x: getattr(x[1], 'init_order', 0)):
             self.services[name] = v()
-        print(self.services)
+
         for service in sorted(self.services.values(), key=lambda s: getattr(s, 'load_order', 0)):
             service.setup()
         for cls in found_classes:

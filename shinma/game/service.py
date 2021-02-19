@@ -19,6 +19,7 @@ class GameModule:
     1. ACL Handlers
     2. Namespaces
     3. Tags
+    4. CommandGroups
     4. Scripts
     5. Prototypes
     6. Objects
@@ -45,10 +46,7 @@ class GameModule:
         pass
 
     def load_acl(self):
-        """
-        This is called to
-        :return:
-        """
+        pass
 
     def load_tags(self):
         pass
@@ -59,10 +57,22 @@ class GameModule:
     def load_namespaces(self):
         pass
 
+    def load_commandgroups(self):
+        pass
+
     def load_scripts(self):
         pass
 
     def load_objects(self):
+        pass
+
+    def patch_basic(self):
+        pass
+
+    def patch_prototypes(self):
+        pass
+
+    def patch_objects(self):
         pass
 
     def op_module_event(self, event: str, *args, **kwargs):
@@ -77,11 +87,14 @@ class GameService(BaseService):
 
     def __init__(self):
         self.objects = dict()
+        self.object_defs = dict()
         self.modules = dict()
         self.dependency_tiers = defaultdict(list)
         self.module_call_order = list()
         self.tags = dict()
+        self.commandgroups = dict()
         self.prototypes = dict()
+        self.prototype_defs = dict()
         self.namespaces = dict()
         self.inventory_classes = dict()
         self.acl_classes = dict()
@@ -100,6 +113,12 @@ class GameService(BaseService):
                     module = importlib.import_module(f"shinma.modules.{mname}")
                 except ImportError:
                     raise GameServiceException(f"Could not locate module: {mname}")
+            if not module:
+                try:
+                    module = importlib.import_module(mname)
+                except ImportError:
+                    raise GameServiceException(f"Could not locate module: {mname}")
+
             if not (mclass := getattr(module, "Module", None)):
                 raise GameServiceException(f"Module {mname} does not provide a Module class.")
             module = mclass(self)
@@ -111,68 +130,251 @@ class GameService(BaseService):
         # Start loading assets...
         for m in self.module_call_order:
             m.load_acl()
+        for m in self.module_call_order:
             m.load_namespaces()
+        for m in self.module_call_order:
             m.load_tags()
+        for m in self.module_call_order:
+            m.load_commandgroups()
+        for m in self.module_call_order:
             m.load_scripts()
+
+        # Give modules a chance to alter previous data.
+        # Careful with this.
+        for m in self.module_call_order:
+            m.patch_basic()
+
+        for m in self.module_call_order:
             m.load_prototypes()
+
+        # Give modules a chance to modify prototype data.
+        for m in self.module_call_order:
+            m.patch_prototypes()
+
+        # Now that all prototype data has been assembled, process it
+        # from GamePrototypeDefs into GamePrototypes, and dispose of
+        # the defs.
+        self.process_prototypes_initial()
+
+        for m in self.module_call_order:
             m.load_objects()
 
-        print(self.prototypes)
+        # Do a final load of object data from the save game data.
+        self.load_objects()
 
+        for m in self.module_call_order:
+            m.patch_objects()
+
+        # Now that all object data has been assembled, process it
+        # from GameObjectDefs into GameObjects, and dispose of
+        # the defs.
+        self.process_objects_initial()
+
+        self.process_prototypes_final()
+        self.process_objects_final()
 
     def register_module(self, name, module):
+        if (found := self.modules.get(name, None)):
+            return (found, f"Module {name} is already registered!")
         self.modules[name] = module
+        return (module, False)
 
     def register_tag(self, name, tag):
+        if (found := self.tags.get(name, None)):
+            return (found, f"Tag {name} is already registered!")
         self.tags[name] = tag
+        return (tag, False)
 
     def register_namespace(self, name, namespace):
+        if (found := self.namespaces.get(name, None)):
+            return (found, f"Namespace {name} is already registered!")
         self.namespaces[name] = namespace
+        return (namespace, False)
 
     def register_acl(self, name, handler):
-        pass
+        if (found := self.acl_classes.get(name, None)):
+            return (found, f"ACLHandler {name} is already registered!")
+        self.acl_classes[name] = handler
+        return (handler, False)
+
+    def register_commandgroup(self, name, commandgroup):
+        if (found := self.commandgroups.get(name, None)):
+            return (found, f"CommandGroup {name} is already registered!")
+        self.commandgroups[name] = commandgroup
+        return (commandgroup, False)
 
     def register_prototype(self, name, proto):
-        self.prototypes[name] = proto
+        if (found := self.prototype_defs.get(name, None)):
+            return (found, f"PrototypeDef {name} is already registered!")
+        self.prototype_defs[name] = proto
+        return (proto, False)
+
+    def register_inventory(self, name, inv):
+        if (found := self.inventory_classes.get(name, None)):
+            return (found, f"InventoryHandler {name} is already registered!")
+        self.inventory_classes[name] = inv
+        return (inv, False)
 
     def register_script(self, name, script):
-        pass
+        if (found := self.scripts.get(name, None)):
+            return (found, f"InventoryHandler {name} is already registered!")
+        self.scripts[name] = script
+        return (script, False)
 
     def register_object(self, name, obj):
-        pass
+        if (found := self.object_defs.get(name, None)):
+            return (found, f"ObjectDef {name} is already registered!")
+        self.object_defs[name] = obj
+        return (obj, False)
+
+    def process_prototypes_initial(self):
+        final_list = dict()
+        for k, v in self.prototype_defs.items():
+            result, error = self.process_prototype_initial(k, v)
+            if error:
+                return (None, error)
+            final_list[result.name] = result
+        self.prototypes.update(final_list)
 
     def find_prototype(self, pname: str):
         if (proto := self.prototypes.get(pname, None)):
-            return proto
-        raise GameServiceException(f"Prototype {pname} not found.")
+            return (proto, None)
+        return (None, f"Prototype {pname} not found.")
 
     def find_object(self, objid: str):
         if (obj := self.objects.get(objid, None)):
-            return obj
-        raise GameServiceException(f"Object {objid} not found.")
+            return (obj, None)
+        return (None, f"Object {objid} not found.")
+
+    def find_namespace(self, name: str):
+        if (found := self.namespaces.get(name, None)):
+            return (found, None)
+        return (None, f"Namespace {name} not found.")
+
+    def find_tag(self, name: str):
+        if (found := self.tags.get(name, None)):
+            return (found, None)
+        return (None, f"Tag {name} not found.")
+
+    def find_commandgroup(self, name: str):
+        if (found := self.commandgroups.get(name, None)):
+            return (found, None)
+        return (None, f"CommandGroup {name} not found.")
+
+    def find_inventory(self, name: str):
+        if (found := self.inventory_classes.get(name, None)):
+            return (found, None)
+        return (None, f"InventoryHandler {name} not found.")
+
+    def find_script(self, name: str):
+        if (found := self.scripts.get(name, None)):
+            return (found, None)
+        return (None, f"Script {name} not found.")
+
+    def process_prototype_initial(self, name, pdef):
+        proto = self.app.classes["game"]["prototype"](pdef.module, pdef.name)
+        proto.objid_prefix = pdef.objid_prefix
+        if pdef.namespaces:
+            for pname in pdef.namespaces:
+                namespace, error = self.find_namespace(pname)
+                if error:
+                    return (None, f"Error while processing prototype {name}: {error}")
+                proto.namespaces.add(namespace)
+
+        if pdef.tags:
+            for ptag in pdef.tags:
+                tag, error = self.find_tag(ptag)
+                if error:
+                    return (None, f"Error while processing prototype {name}: {error}")
+                proto.tags.add(tag)
+
+        if pdef.cmdgroups:
+            for pgroup in pdef.cmdgroups:
+                cmdgroup, error = self.find_commandgroup(pgroup)
+                if error:
+                    return (None, f"Error while processing prototype {name}: {error}")
+                proto.cmdgroups[pgroup] = cmdgroup
+
+        if pdef.inventories:
+            for pinv in pdef.inventories:
+                inv, error = self.find_inventory(pinv)
+                if error:
+                    return (None, f"Error while processing prototype {name}: {error}")
+                proto.inventories[pinv] = inv
+
+        if pdef.scripts:
+            for pscr in pdef.scripts:
+                scr, error = self.find_script(pscr)
+                if error:
+                    return (None, f"Error while processing prototype {name}: {error}")
+                proto.scripts[pscr] = scr
+
+        if isinstance(pdef.attributes, dict):
+            proto.attributes = pdef.attributes
+
+        return (proto, False)
+
+    def process_prototypes_final(self):
+        for name, proto in self.prototypes.items():
+            for tag in proto.tags:
+                tag.prototypes.add(proto)
+            for namespace in proto.namespaces:
+                namespace.prototypes.add(proto)
+            for inventory in proto.inventories.values():
+                inventory.prototypes.add(proto)
+            for k, v in proto.saved_locations.items():
+                if v["objid"] not in self.objects:
+                    return (None, f"Error while final processing prototype {name}: {v['objid']} not found for saved location {k}")
+            for k, v in proto.acl.items():
+                if v["objid"] not in self.objects:
+                    return (None, f"Error while final processing prototype {name}: {v['objid']} not found for saved location {k}")
+            for cmdgroup in proto.cmdgroups.values():
+                cmdgroup.prototypes.add(proto)
+            for script in proto.scripts.values():
+                script.prototypes.add(proto)
+            for k, v in proto.relations.items():
+                if k not in self.objects:
+                    return (None, f"Error while final processing prototype {name}: {v['objid']} not found for relational attributes {k}")
+        return (None, False)
+
+    def load_objects(self):
+        pass
+
+    def process_objects_initial(self):
+        for k, v in self.object_defs.items():
+            self.process_object_initial(k, v)
+
+    def process_object_initial(self, objid, odef):
+        pass
 
     def spawn_object(self, prototypes: Union[str, List[str]], name=None, objid: str = None, module=None):
         if isinstance(prototypes, str):
             prototypes = [prototypes]
         if not prototypes:
-            raise GameServiceException("No prototypes listed to spawn.")
-        prototypes = [self.find_prototype(pname) for pname in prototypes]
+            return (None, "Object Spawn error: No prototypes listed for spawn.")
+        final_prototypes = list()
+        for pname in prototypes:
+            proto, error = self.find_prototype(pname)
+            if error:
+                return (None, f"Object Spawn error: {error}")
+            final_prototypes.append(proto)
         if objid is None:
             prefix = None
-            for proto in prototypes:
+            for proto in final_prototypes:
                 prefix = proto.objid_prefix
             if prefix is None:
-                raise GameServiceException("No objid provided for dynamic spawn.")
+                return (None, f"Object Spawn error: No objid provided, no objid_prefix available in prototypes for dynamic IDs.")
             objid = self.generate_id(prefix)
         if name is None:
             name = objid
-        out = self.app.classes["game"]["object"](module, name, objid, prototypes)
-        # out.setup() might raise a GameServiceException, but if it doesn't, setup_reverse() is not allowed to.
-        out.setup(self)
-
-        self.objects[objid] = out
-        out.setup_reverse()
-        return out
+        obj = self.app.classes["game"]["object"](module, name, objid, prototypes)
+        # out.setup() might return an error, but if it doesn't, setup_reverse() is not allowed to fail.
+        result, error = obj.setup()
+        if error:
+            return (None, f"Object Spawn error: {error}")
+        self.objects[objid] = obj
+        obj.setup_reverse()
+        return (obj, None)
 
     def generate_id(self, prefix=None):
         if prefix is None:

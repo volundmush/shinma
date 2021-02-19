@@ -8,14 +8,47 @@ import ujson
 class PlayView:
     service = None
 
-    def __init__(self,  name, character):
-        self.name = name
-        self.cmd_queue = Queue()
-        self.connections = dict()
+    def __init__(self,  character):
+        self.name = f"playview_{character.objid}"
+        self.connections = set()
         self.incoming_queue = Queue()
         self.outgoing_queue = Queue()
+        self.gameobject = None
         self.character = character
         self.puppet = character
+
+    def receive(self, msg):
+        self.outgoing_queue.put_nowait(msg)
+
+    async def start(self):
+        await asyncio.gather(self.process_incoming(), self.process_outgoing())
+
+    def create_gameobject(self):
+        self.gameobject = self.service.app.services["game"].spawn_object(self.service.app.settings.PROTOTYPES["playview"], name=self.name)
+        self.gameobject.netobj = self
+
+    async def process_incoming(self):
+        while True:
+            msg = await self.incoming_queue.get()
+
+    async def process_outgoing(self):
+        while True:
+            msg = await self.outgoing_queue.get()
+            await self.service.outgoing_queue.put(msg)
+
+
+class Session:
+    service = None
+
+    def __init__(self, name, account):
+        self.name = name
+        self.account = account
+        self.connections = set()
+        self.gameobject = None
+
+    def create_gameobject(self):
+        self.gameobject = self.service.app.services["game"].spawn_object(self.service.app.settings.PROTOTYPES["session"], name=self.name)
+        self.gameobject.netobj = self
 
 
 class Connection:
@@ -66,7 +99,7 @@ class Connection:
 
     def create_gameobject(self):
         self.gameobject = self.service.app.services["game"].spawn_object(self.service.app.settings.PROTOTYPES["connection"], name=self.name)
-        self.gameobject.connection = self
+        self.gameobject.netobj = self
 
     async def msg_client_json(self, msg):
         pass
@@ -156,21 +189,11 @@ class Connection:
             msg = await self.outgoing_queue.get()
             await self.service.outgoing_queue.put(msg)
 
-    def stop(self):
-        if self.incoming_task:
-            self.incoming_task.cancel()
-        if self.outgoing_task:
-            self.outgoing_task.cancel()
+    def authenticate(self, account, password):
+        pass
 
-
-class Session:
-    service = None
-
-    def __init__(self, name, account, gameobject):
-        self.name = name
-        self.account = account
-        self.connections = set()
-        self.gameobject = gameobject
+    def login(self, sess):
+        self.session = sess
 
 
 class NetService(BaseService):

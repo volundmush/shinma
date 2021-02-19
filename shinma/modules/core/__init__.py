@@ -1,5 +1,7 @@
 from shinma.game.service import GameModule
-from shinma.game.objects import Tag, Namespace, GamePrototype
+from shinma.game.objects import Tag, Namespace, GamePrototypeDef, GameObjectDef
+from shinma.game.commands import CommandGroup
+from . commands import connection
 
 TAGS = ("account", "connection", "session", "playview")
 
@@ -34,7 +36,8 @@ PROTOTYPES = {
   },
   "CoreConnection": {
     "objid_prefix": "connection",
-    "tags": ["connection"]
+    "tags": ["connection"],
+    "commandgroups": ["CoreLogin", "CoreAuthed"]
   },
   "CoreSession": {
     "objid_prefix": "session",
@@ -77,13 +80,23 @@ class Module(GameModule):
         for k, v in NAMESPACES.items():
             self.game.register_namespace(k, Namespace(k, v["abbreviation"], v["priority"]))
 
+    def load_commandgroups(self):
+        g1 = CommandGroup("CoreLogin")
+        g1.add(connection.HelpCommand)
+        g1.add(connection.CreateCommand)
+        g1.add(connection.ConnectCommand)
+        self.game.register_commandgroup(g1.name, g1)
+
+        g2 = CommandGroup("CoreAuthed")
+        self.game.register_commandgroup(g2.name, g2)
+
     def load_prototypes(self):
         for k, v in PROTOTYPES.items():
-            proto = GamePrototype(self, k)
+            proto = GamePrototypeDef(self, k)
             for t in v.get("tags", list()):
                 proto.tags.add(t)
             if "namespace" in v:
-                proto.namespace = v["namespace"]
+                proto.namespaces.add(v["namespace"])
             if "objid_prefix" in v:
                 proto.objid_prefix = v["objid_prefix"]
             self.game.register_prototype(k, proto)
