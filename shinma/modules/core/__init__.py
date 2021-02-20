@@ -1,6 +1,8 @@
-from shinma.game.service import GameModule
-from shinma.game.objects import Tag, Namespace, GamePrototypeDef, GameObjectDef
-from shinma.game.commands import CommandGroup
+from shinma.engine import GameModule
+from shinma.objects import Tag, Namespace, GameObjectDef
+from shinma.prototypes import GamePrototypeDef
+
+from . scripts import CoreConnectionScript
 from . commands import connection
 
 TAGS = ("account", "connection", "session", "playview")
@@ -37,7 +39,8 @@ PROTOTYPES = {
   "CoreConnection": {
     "objid_prefix": "connection",
     "tags": ["connection"],
-    "commandgroups": ["CoreLogin", "CoreAuthed"]
+    "cmdgroups": {"login": "CoreLogin", "auth": "CoreAuthed"},
+    "scripts": ["CoreConnectionScript"]
   },
   "CoreSession": {
     "objid_prefix": "session",
@@ -71,6 +74,10 @@ OBJECTS = {
 
 class Module(GameModule):
     name = "core"
+    version = "0.0.1"
+    requirements = {
+        "net": {"min": "0.0.1"}
+    }
 
     def load_tags(self):
         for t in TAGS:
@@ -79,16 +86,6 @@ class Module(GameModule):
     def load_namespaces(self):
         for k, v in NAMESPACES.items():
             self.game.register_namespace(k, Namespace(k, v["abbreviation"], v["priority"]))
-
-    def load_commandgroups(self):
-        g1 = CommandGroup("CoreLogin")
-        g1.add(connection.HelpCommand)
-        g1.add(connection.CreateCommand)
-        g1.add(connection.ConnectCommand)
-        self.game.register_commandgroup(g1.name, g1)
-
-        g2 = CommandGroup("CoreAuthed")
-        self.game.register_commandgroup(g2.name, g2)
 
     def load_prototypes(self):
         for k, v in PROTOTYPES.items():
@@ -99,4 +96,11 @@ class Module(GameModule):
                 proto.namespaces.add(v["namespace"])
             if "objid_prefix" in v:
                 proto.objid_prefix = v["objid_prefix"]
+            if "cmdgroups" in v:
+                proto.cmdgroups.update(v["cmdgroups"])
+            if "scripts" in v:
+                proto.scripts = v["scripts"]
             self.game.register_prototype(k, proto)
+
+    def load_scripts(self):
+        self.game.register_script("CoreConnectionScript", CoreConnectionScript)

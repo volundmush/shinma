@@ -1,5 +1,3 @@
-from shinma.game.objects import Msg
-
 
 class Command:
     name = None  # Name must be set to a string!
@@ -55,6 +53,9 @@ class Command:
     def msg(self, **kwargs):
         self.enactor.msg(Msg(self.enactor, **kwargs))
 
+    def __repr__(self):
+        return f"<{self.__class__.__name__}: {self.name}>"
+
 
 class CommandGroup:
     prototypes = set()
@@ -71,9 +72,39 @@ class CommandGroup:
         """
 
     def add(self, cmd_class):
-        pass
+        self.cmds.add(cmd_class)
 
     def match(self, enactor, text):
         for cmd in self.cmds:
             if cmd.access(enactor) and (result := cmd.match(enactor, text)):
                 return cmd(enactor, result, self)
+
+    def __repr__(self):
+        return f"<{self.__class__.__name__}: {self.name}>"
+
+
+class CoreCommandException(Exception):
+    pass
+
+
+class BaseCommand(Command):
+    re_match = None
+
+    def __init__(self, enactor, match_obj, group):
+        super().__init__(enactor, match_obj, group)
+        self.net = enactor.app.services["net"]
+        self.game = enactor.app.services["game"]
+
+    @classmethod
+    def match(cls, enactor, text):
+        if (result := cls.re_match.fullmatch(text)):
+            return result
+
+    def execute(self):
+        try:
+            self.do_execute()
+        except Exception as e:
+            self.msg(text=str(e))
+
+    def do_execute(self):
+        pass

@@ -1,6 +1,7 @@
 from collections import defaultdict
 from typing import Union, List, Dict
 from asyncio import Queue
+from shinma.prototypes import GamePrototype
 
 
 class Tag:
@@ -23,58 +24,19 @@ class Namespace:
         self.objects = set()
         self.prototypes = set()
 
-
-class GamePrototypeDef:
-    __slots__ = ["module", "name", "keywords", "objid_prefix", "namespaces", "attributes", "relations",
-                 "inventories", "acl", "acl_class", "objects", "tags", "cmdgroups", "scripts",
-                 "saved_locations"]
-
-    def __init__(self, module, name: str):
-        self.module = module
-        self.name = name
-        self.keywords = set()
-        self.objid_prefix = ""
-        self.namespaces = set()
-        self.attributes = dict()
-        self.inventories = dict()
-        self.relations = dict()
-        self.saved_locations = dict()
-        self.acl = dict()
-        self.acl_class = None
-        self.objects = set()
-        self.tags = set()
-        self.cmdgroups = dict()
-        self.scripts = dict()
-
-    def __str__(self):
-        return self.name
+    def search(self, name, exact=False):
+        upper = name.upper()
+        if exact:
+            for obj in self.objects:
+                if obj.name.upper() == upper:
+                    return obj, None
+        else:
+            if results := {obj for obj in self.objects if obj.name.upper().startswith(upper)}:
+                return results, None
+        return None, "Nothing found."
 
 
-class GamePrototype:
-    __slots__ = ["module", "name", "keywords", "objid_prefix", "namespaces", "attributes", "relations",
-                 "prototypes", "inventories", "acl", "acl_class", "objects", "tags", "cmdgroups", "scripts",
-                 "saved_locations"]
 
-    def __init__(self, module, name: str):
-        self.module = module
-        self.name = name
-        self.keywords = set()
-        self.objid_prefix = ""
-        self.namespaces = set()
-        self.attributes = AttributeHandler(self)
-        self.inventories = dict()
-        self.relations = dict()
-        self.prototypes = list()
-        self.saved_locations = dict()
-        self.acl = dict()
-        self.acl_class = None
-        self.objects = set()
-        self.tags = set()
-        self.cmdgroups = dict()
-        self.scripts = dict()
-
-    def __str__(self):
-        return self.name
 
 
 class GameInventory:
@@ -137,7 +99,7 @@ class GameObjectDef:
         self.date_modified = None
         self.cmdgroups = dict()
         self.service = None
-        self.scripts = dict()
+        self.scripts = set()
 
     def __str__(self):
         return self.objid
@@ -151,6 +113,14 @@ class ScriptHandler:
 
     def dispatch_event(self, event: str, *args, **kwargs):
         return [v.on_object_event(self.obj, event, *args, **kwargs) for k, v in self.scripts.items()]
+
+    def setup(self):
+        final = set()
+        for proto in self.obj.prototypes:
+            final = final.union(proto.scripts)
+        self.scripts = {s.name: s for s in final}
+        for s in final:
+            s.objects.add(self.obj)
 
 
 class Attribute:
@@ -176,6 +146,9 @@ class AttributeHandler:
         self.obj = obj
         self.categories = dict()
 
+    def setup(self):
+        pass
+
 
 class Relation:
     __slots__ = ["attributes", "reverse", "has", "gameobj"]
@@ -194,6 +167,9 @@ class RelationHandler:
         self.obj = obj
         self.relations = dict()
 
+    def setup(self):
+        pass
+
 
 class ACLEntry:
     __slots__ = ["target", "mode", "allow", "deny"]
@@ -210,17 +186,71 @@ class LocationHandler:
     def __init__(self, obj):
         self.obj = obj
 
+    def setup(self):
+        pass
+
 
 class ContentsHandler:
 
     def __init__(self, obj):
         self.obj = obj
 
+    def setup(self):
+        pass
+
 
 class CmdHandler:
 
     def __init__(self, obj):
         self.obj = obj
+        self.queue = Queue()
+        self.registered = False
+        self.group_cache = None
+
+    def execute_pending_commmand(self):
+        if self.queue.empty():
+            self.app.services["game"].pending_cmds.remove(self.obj)
+            self.registered = False
+            return
+        text = self.queue.get_nowait()
+        if text:
+            self.execute_cmd(text)
+
+    def execute_cmd(self, text):
+        try:
+            found = None
+            for grp in self.get_cmd_groups():
+                if (cmd := grp.match(self.obj, text)):
+                    found = cmd
+                    break
+            if found:
+                found.at_pre_execute()
+                found.execute()
+                found.at_post_execute()
+            else:
+                if self.obj.next_cmd_object:
+                    self.obj.next_cmd_object.cmd.execute_cmd(text)
+                else:
+                    self.obj.msg(Msg(self.obj, text=f"Huh? Command '{text}' not recognized."))
+        except Exception as e:
+            print(f"something foofy: {e}")
+
+    def get_cmd_groups(self):
+        if self.group_cache is None:
+            final = dict()
+            for proto in self.obj.prototypes:
+                final.update(proto.cmdgroups)
+            self.group_cache = final
+        return self.group_cache.values()
+
+    def receive(self, text):
+        self.queue.put_nowait(text)
+        if not self.registered:
+            self.app.services["game"].pending_cmds.add(self.obj)
+            self.registered = True
+
+    def setup(self):
+        self.get_cmd_groups()
 
 
 class ACLHandler:
@@ -235,13 +265,17 @@ class ACLHandler:
         self.entries_sorted = list()
         self.reverse = set()
 
+    def setup(self):
+        pass
+
 
 class GameObject:
-    __slots__ = ["module", "name", "keywords", "objid", "namespace", "attributes", "relations", "prototypes",
-                 "acl", "location", "service", "contents", "date_created",
+    __slots__ = ["game", "module", "name", "keywords", "objid", "namespace", "attributes", "relations", "prototypes",
+                 "acl", "location", "service", "contents", "date_created", "next_cmd_object",
                  "date_modified", "views", "listeners", "netobj", "cmd", "scripts", "saved_locations"]
 
-    def __init__(self, module, name: str, objid: str, prototypes: List[GamePrototype]):
+    def __init__(self, game, module, name: str, objid: str, prototypes: List[GamePrototype]):
+        self.game = game
         self.module = module  # if this is none, the GameObject is unique to this game instance. Such as: Accounts
         self.name = name
         self.keywords = set()
@@ -262,12 +296,12 @@ class GameObject:
         self.cmd = self.app.classes["game"]["cmdhandler"](self)
         self.scripts = self.app.classes["game"]["scripthandler"](self)
 
-        # This is special and only used for GameObjects which are being controlled by players.
-        self.listeners = set()
-        self.netobj = None
 
     def __str__(self):
         return self.objid
+
+    def __repr__(self):
+        return f"<{self.__class__.__name__}: {self.objid} - {self.name}>"
 
     def setup(self):
         """
@@ -278,11 +312,11 @@ class GameObject:
         self.attributes.setup()
         self.relations.setup()
         self.location.setup()
-        self.inventories.setup()
+        self.contents.setup()
         self.cmd.setup()
         self.scripts.setup()
 
-
+        return (self, None)
 
     def setup_reverse(self):
         pass
@@ -291,26 +325,7 @@ class GameObject:
         for c in self.listeners:
             c.msg(msg.relay(self))
 
+    def send(self, **kwargs):
+        self.msg(Msg(source=self, **kwargs))
 
-class GameScript:
 
-    def __init__(self, service, name):
-        self.service = service
-        self.name = name
-        self.objects = set()
-
-    def on_object_event(self, gameobj: GameObject, event: str, *args, **kwargs):
-        """
-        This is called by GameObject's dispatch_event method. event is an arbitrary string,
-        and *args and **kwargs are data attributed to that event.
-
-        This call must never raise an unhandled exception or otherwise break. Try to keep it as self-contained
-        as possible.
-        """
-        pass
-
-    def on_game_event(self, event: str, *args, **kwargs):
-        """
-        This is called by the GameService, which is why a gameobj is not passed. This is meant to be used for
-        things such as 'timers' - like processing hunger for all attached Objects every x seconds.
-        """

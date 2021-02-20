@@ -1,6 +1,6 @@
 # BETA! Use art your own risk
 
-# Volund's Athanor Framework for Evennia
+# Volund's Shinma MU* Engine
 
 ## CONTACT INFO
 **Name:** Volund
@@ -18,9 +18,6 @@
 ## TERMS AND CONDITIONS
 
 BSD license. Please see the included LICENSE.txt for the legalese.
-
-In short:
-Go nuts. Use this code however you like. Modify it and distribute such modifications to your heart's content. Heck, you can even run a commercial game with paid services and microtransactions. Whatever. But give credit where credit is due. (me, and Evennia's original coders). And if you DO make money off of it, please be awesome and support me on Patreon!
 
 Support is limited by my time, energy, and funds. No guarantees can be made, but I love to see quality stuff out there.
 

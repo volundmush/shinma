@@ -22,9 +22,9 @@ import functools
 import re
 from collections import OrderedDict
 
-from shinma.utils.ansi_settings import settings
+from .ansi_settings import settings
 
-from shinma.utils.misc import to_str
+from shinma.utils import to_str
 
 # ANSI definitions
 
