@@ -1,17 +1,9 @@
 # Connection details for the Portal.
 from collections import defaultdict
+import sys
+from shinma.core import ShinmaEngine
 
-PORTAL = "http://127.0.0.1:7998"
+ENGINE = ShinmaEngine()
 
 # A list of folder names for game modules contained within the profile's modules directory.
-MODULES = ["net", "core"]
-
-APPLICATION_CORE = "shinma.engine.ShinmaEngine"
-
-
-PROTOTYPES = {
-    "connection": "CoreConnection",
-    "session": "CoreSession",
-    "account": "CoreAccount",
-    "playview": "CorePlayView"
-}
+MODULES = ["net", "gamedb", "core"]

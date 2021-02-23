@@ -1,9 +1,9 @@
-from shinma.engine import GameModule
-from shinma.objects import Tag, Namespace, GameObjectDef
-from shinma.prototypes import GamePrototypeDef
+from shinma.core import ShinmaModule
+from shinma.utils import import_from_module
+from . cmdqueue import QueueEntry, CmdQueue
+from . commands.base import CommandGroup
+from . commands import connection as LoginCmds
 
-from . scripts import CoreConnectionScript
-from . commands import connection
 
 TAGS = ("account", "connection", "session", "playview")
 
@@ -72,35 +72,88 @@ OBJECTS = {
 }
 
 
-class Module(GameModule):
+class Module(ShinmaModule):
     name = "core"
     version = "0.0.1"
     requirements = {
-        "net": {"min": "0.0.1"}
+        "net": {"min": "0.0.1"},
+        "gamedb": {"min": "0.0.1"}
     }
 
-    def load_tags(self):
-        for t in TAGS:
-            self.game.register_tag(t, Tag(t))
+    def __init__(self, engine, *args, **kwargs):
+        super().__init__(engine, *args, **kwargs)
+        engine.subscribe_event("net_client_connected", self.net_client_connected)
+        engine.subscribe_event("net_client_command", self.net_client_command)
+        engine.subscribe_event("net_client_gmcp", self.net_client_gmcp)
+        engine.subscribe_event("net_client_disconnected", self.net_client_disconnected)
+        engine.subscribe_event("net_client_reconfigured", self.net_client_reconfigured)
+        self.cmdqueue = CmdQueue(self)
+        self.cmdgroups = dict()
+        self.typeclasses = dict()
+        self.objects = dict()
+        self.objmanager = None
 
-    def load_namespaces(self):
-        for k, v in NAMESPACES.items():
-            self.game.register_namespace(k, Namespace(k, v["abbreviation"], v["priority"]))
+    def init_settings(self, settings):
+        settings.CORE_TYPECLASSES = dict()
+        from . typeclasses.connection import ConnectionTypeClass
+        settings.CORE_TYPECLASSES["connection"] = ConnectionTypeClass
+        from . typeclasses.account import AccountTypeClass
+        settings.CORE_TYPECLASSES["account"] = AccountTypeClass
+        from . typeclasses.playview import PlayViewTypeClass
+        settings.CORE_TYPECLASSES["playview"] = PlayViewTypeClass
+        from . typeclasses.room import RoomTypeClass
+        settings.CORE_TYPECLASSES["room"] = RoomTypeClass
+        from . typeclasses.exit import ExitTypeClass
+        settings.CORE_TYPECLASSES["exit"] = ExitTypeClass
+        from . typeclasses.welcome import WelcomeScreenTypeClass
+        settings.CORE_TYPECLASSES["welcomescreen"] = WelcomeScreenTypeClass
 
-    def load_prototypes(self):
-        for k, v in PROTOTYPES.items():
-            proto = GamePrototypeDef(self, k)
-            for t in v.get("tags", list()):
-                proto.tags.add(t)
-            if "namespace" in v:
-                proto.namespaces.add(v["namespace"])
-            if "objid_prefix" in v:
-                proto.objid_prefix = v["objid_prefix"]
-            if "cmdgroups" in v:
-                proto.cmdgroups.update(v["cmdgroups"])
-            if "scripts" in v:
-                proto.scripts = v["scripts"]
-            self.game.register_prototype(k, proto)
+    def setup(self):
+        for k, v in self.engine.settings.CORE_TYPECLASSES.items():
+            if isinstance(v, str):
+                self.typeclasses[k] = import_from_module(v)
+            else:
+                self.typeclasses[k] = v
+        for k, v in self.typeclasses.items():
+            v.core = self
 
-    def load_scripts(self):
-        self.game.register_script("CoreConnectionScript", CoreConnectionScript)
+        g1 = CommandGroup("connection")
+        g1.add(LoginCmds.CreateCommand)
+        g1.add(LoginCmds.ConnectCommand)
+        g1.add(LoginCmds.HelpCommand)
+        g1.add(LoginCmds.CharCreateCommand)
+        g1.add(LoginCmds.CharSelectCommand)
+        self.cmdgroups[g1.name] = g1
+
+        self.objmanager = self.engine.modules["gamedb"]
+        self.objmanager.process_preload()
+
+
+    def net_client_connected(self, event, *args, **kwargs):
+        if not (typeclass := self.typeclasses.get("connection", None)):
+            # Should do some kind of error handling here, and kick the connection that we can't support.
+            return
+        conn = kwargs['connection']
+        if not (obj := self.ojects.get(conn.name, None)):
+            obj, err = typeclass.create(objid=conn.name, name=conn.name)
+            if err:
+                # Handle error, kick client, blahblah.
+                return
+        obj.connection = conn
+
+    def net_client_command(self, event, *args, **kwargs):
+        conn = kwargs["connection"]
+        entry = QueueEntry(enactor=conn.name, executor=conn.name, caller=conn.name, actions=[kwargs["text"]])
+        self.cmdqueue.push(entry)
+
+    def net_client_gmcp(self, event, *args, **kwargs):
+        pass
+
+    def net_client_disconnected(self, event, *args, **kwargs):
+        pass
+
+    def net_client_reconfigured(self, event, *args, **kwargs):
+        pass
+
+    async def start(self):
+        await self.cmdqueue.start()

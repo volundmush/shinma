@@ -9,7 +9,7 @@ import uvloop
 from shinma.utils import import_from_module
 
 
-def main():
+async def main():
     if (new_cwd := os.environ.get("SHINMA_PROFILE")):
         if not os.path.exists(new_cwd):
             raise ValueError("Improper Shinma profile!")
@@ -28,14 +28,13 @@ def main():
 
     # Step 2: Locate application Core from settings. Instantiate
     # application core and inject settings into it.
-    core_class = import_from_module(settings.APPLICATION_CORE)
-    app_core = core_class(settings)
+    settings.ENGINE.setup()
 
     # Step 3: Start everything up and run forever.
-    uvloop.install()
-    asyncio.run(app_core.start(), debug=True)
+    await settings.ENGINE.start()
     os.remove(pidfile)
 
 
 if __name__ == "__main__":
-    main()
+    uvloop.install()
+    asyncio.run(main(), debug=True)

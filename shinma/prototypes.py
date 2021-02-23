@@ -1,7 +1,6 @@
 class GamePrototypeDef:
     __slots__ = ["module", "name", "keywords", "objid_prefix", "namespaces", "attributes", "relations",
-                 "inventories", "acl", "acl_class", "objects", "tags", "cmdgroups", "scripts",
-                 "saved_locations"]
+                 "objects", "tags", "cmdgroups", "scripts",]
 
     def __init__(self, module, name: str):
         self.module = module
@@ -10,14 +9,9 @@ class GamePrototypeDef:
         self.objid_prefix = ""
         self.namespaces = set()
         self.attributes = dict()
-        self.inventories = dict()
         self.relations = dict()
-        self.saved_locations = dict()
-        self.acl = dict()
-        self.acl_class = None
         self.objects = set()
         self.tags = set()
-        self.cmdgroups = dict()
         self.scripts = set()
 
     def __str__(self):
@@ -25,26 +19,19 @@ class GamePrototypeDef:
 
 
 class GamePrototype:
-    __slots__ = ["module", "name", "keywords", "objid_prefix", "namespaces", "attributes", "relations",
-                 "prototypes", "inventories", "acl", "acl_class", "objects", "tags", "cmdgroups", "scripts",
-                 "saved_locations"]
+    __slots__ = ["module", "name", "objid_prefix", "namespaces", "attributes", "relations",
+                 "prototypes", "objects", "tags", "scripts"]
 
     def __init__(self, module, name: str):
         self.module = module
         self.name = name
-        self.keywords = set()
         self.objid_prefix = ""
         self.namespaces = set()
         self.attributes = dict()
-        self.inventories = dict()
         self.relations = dict()
         self.prototypes = list()
-        self.saved_locations = dict()
-        self.acl = dict()
-        self.acl_class = None
         self.objects = set()
         self.tags = set()
-        self.cmdgroups = dict()
         self.scripts = set()
 
     def __str__(self):

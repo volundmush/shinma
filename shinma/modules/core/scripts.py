@@ -1,42 +1,32 @@
-from shinma.objects import GameObject
-from shinma.scripts import GameScript
-from .. net.ansi import ANSIString
-
-
-class CoreConnectionScript(GameScript):
+class GameScript:
 
     def __init__(self, game, name):
-        super().__init__(game, name)
-        self.game_switchboard = {
-            "net_client_connected": self.net_client_connected,
-            "net_client_command": self.net_client_command,
-            "net_client_gmcp": self.net_client_gmcp,
-            "net_client_disconnected": self.net_client_disconnected,
-            "net_client_reconfigured": self.net_client_reconfigured
-        }
-        self.object_switchboard = {
+        self.game = game
+        self.name = name
+        self.objects = set()
+        self.prototypes = set()
+        self.task = None
 
-        }
+    def on_object_event(self, gameobj, event: str, *args, **kwargs):
+        """
+        This is called by GameObject's dispatch_event method. event is an arbitrary string,
+        and *args and **kwargs are data attributed to that event.
 
-    def on_object_event(self, gameobj: GameObject, event: str, *args, **kwargs):
-        if (handler := self.object_switchboard.get(event, None)):
-            return handler(gameobj, *args, **kwargs)
+        This call must never raise an unhandled exception or otherwise break. Try to keep it as self-contained
+        as possible.
+        """
+        pass
 
     def on_game_event(self, event: str, *args, **kwargs):
-        if (handler := self.game_switchboard.get(event, None)):
-            return handler(*args, **kwargs)
+        """
+        This is called by the GameService, which is why a gameobj is not passed. This is meant to be used for
+        things such as 'timers' - like processing hunger for all attached Objects every x seconds. It is also
+        useful for 'global events' for which no GameObject is (yet?) relevant.
+        """
 
-    def net_client_connected(self, *args, **kwargs):
+    async def start(self):
         pass
 
-    def net_client_command(self, *args, **kwargs):
-        pass
-
-    def net_client_gmcp(self, *args, **kwargs):
-        pass
-
-    def net_client_disconnected(self, *args, **kwargs):
-        pass
-
-    def net_client_reconfigured(self, *args, **kwargs):
-        pass
+    def stop(self):
+        if self.task:
+            self.task.cancel()

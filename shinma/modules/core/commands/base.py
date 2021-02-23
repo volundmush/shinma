@@ -1,7 +1,13 @@
+from asyncio import Queue
+
+
+class CommandException(Exception):
+    pass
+
 
 class Command:
     name = None  # Name must be set to a string!
-    app = None
+    re_match = None # this should be a re.compile() pattern
 
     @classmethod
     def access(cls, enactor):
@@ -29,15 +35,18 @@ class Command:
         Or any kind of match, really. The parsed match will be returned and re-used by .execute()
         so use whatever you want.
         """
-        return False
+        if (result := cls.re_match.fullmatch(text)):
+            return result
 
-    def __init__(self, enactor, match_obj, group):
+
+    def __init__(self, enactor, match_obj, group, obj_chain):
         """
-        Instantiates
+        Instantiates the command.
         """
         self.enactor = enactor
         self.match_obj = match_obj
         self.cmd_group = group
+        self.obj_chain = obj_chain
 
     def execute(self):
         """
@@ -45,21 +54,19 @@ class Command:
         """
 
     def at_pre_execute(self):
-        pass
+        print("pre-execute occured!")
 
     def at_post_execute(self):
         pass
 
-    def msg(self, **kwargs):
-        self.enactor.msg(Msg(self.enactor, **kwargs))
+    def msg(self, text=None, **kwargs):
+        self.enactor.msg(text=text, **kwargs)
 
     def __repr__(self):
         return f"<{self.__class__.__name__}: {self.name}>"
 
 
 class CommandGroup:
-    prototypes = set()
-    objects = set()
 
     def __init__(self, name):
         self.name = name
@@ -74,37 +81,11 @@ class CommandGroup:
     def add(self, cmd_class):
         self.cmds.add(cmd_class)
 
-    def match(self, enactor, text):
+    def match(self, enactor, text, obj_chain):
         for cmd in self.cmds:
             if cmd.access(enactor) and (result := cmd.match(enactor, text)):
-                return cmd(enactor, result, self)
+                obj_chain[enactor.typeclass_name] = self
+                return cmd(enactor, result, self, obj_chain)
 
     def __repr__(self):
         return f"<{self.__class__.__name__}: {self.name}>"
-
-
-class CoreCommandException(Exception):
-    pass
-
-
-class BaseCommand(Command):
-    re_match = None
-
-    def __init__(self, enactor, match_obj, group):
-        super().__init__(enactor, match_obj, group)
-        self.net = enactor.app.services["net"]
-        self.game = enactor.app.services["game"]
-
-    @classmethod
-    def match(cls, enactor, text):
-        if (result := cls.re_match.fullmatch(text)):
-            return result
-
-    def execute(self):
-        try:
-            self.do_execute()
-        except Exception as e:
-            self.msg(text=str(e))
-
-    def do_execute(self):
-        pass
