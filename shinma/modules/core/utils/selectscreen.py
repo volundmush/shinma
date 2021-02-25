@@ -1,2 +1,3 @@
+
 def render_select_screen(enactor):
-    return "This will be a welcome screen when I'm done!"
+    return enactor.msg("This will be a select screen when I'm done!")

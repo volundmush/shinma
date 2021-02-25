@@ -25,6 +25,7 @@ class RelationsKind:
         else:
             cat = AttributeCategory(self, name)
             self.objects[obj] = cat
+            obj.reverse[self.name].add(self.handler.obj)
             return cat.set(name, value)
 
     def delete(self, obj: str, name: str = None):

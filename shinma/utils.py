@@ -185,3 +185,12 @@ def fresh_uuid4(existing):
     while fresh_uuid in existing:
         fresh_uuid = uuid.uuid4()
     return fresh_uuid
+
+
+def partial_match(match_text, candidates, key=str):
+    candidate_list = sorted(candidates, key=lambda item: len(key(item)))
+    for candidate in candidate_list:
+        if match_text.lower() == key(candidate).lower():
+            return candidate
+        if key(candidate).lower().startswith(match_text.lower()):
+            return candidate

@@ -60,6 +60,7 @@ class Command:
         pass
 
     def msg(self, text=None, **kwargs):
+        print(f"{self} is generating message {text} for {self.enactor}")
         self.enactor.msg(text=text, **kwargs)
 
     def __repr__(self):

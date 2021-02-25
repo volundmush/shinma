@@ -73,7 +73,7 @@ class BaseTypeClass(GameObject):
             prefix = f"{prefix}_"
 
         attempt = f"{prefix}{''.join(random.choices(string.ascii_letters + string.digits, k=20))}"
-        while attempt in cls.core.objmanager.objects:
+        while attempt in cls.core.objects:
             attempt = f"{prefix}{''.join(random.choices(string.ascii_letters + string.digits, k=20))}"
         return attempt
 
@@ -121,8 +121,8 @@ class BaseTypeClass(GameObject):
         pass
 
     def location(self):
-        if (loc := self.locations.get("contents", None)):
-            return self.core.objects.get(loc[0], None)
+        if (loc := self.reverse.get("room_contents", None)):
+            return list(loc)[0]
         return None
 
     def render_appearance_external(self, viewer=None):
@@ -150,20 +150,4 @@ class BaseTypeClass(GameObject):
         if (next_obj := self.get_next_cmd_object(obj_chain)):
             obj_chain[self.typeclass_name] = self
             next_obj.find_cmd(text, obj_chain)
-
-    def get_attribute(self, category: str, name: str, default: Any = None):
-        return self.attributes.get(category, name)
-
-    def _get_obj(self, category, attrname, field):
-        if (out := getattr(self, field, None)):
-            return out
-        if not (attr := self.get_attribute(category, attrname)):
-            return None
-        if (obj := self.core.get_obj(attr)):
-            setattr(self, field, obj)
-            return obj
-
-    def _set_obj(self, category, attrname, field, value):
-        self.attributes.set(category, attrname, value.objid)
-        setattr(self, field, value)
 

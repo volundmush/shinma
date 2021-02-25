@@ -1,6 +1,7 @@
 import re
 from . base import Command, CommandException, PythonCommandMatcher
 from ...net.ansi import ANSIString
+from shinma.utils import partial_match
 
 
 class _LoginCommand(Command):
@@ -33,6 +34,7 @@ class ConnectCommand(_LoginCommand):
         if not account:
             raise CommandException("Sorry, that was an incorrect username or password.")
         self.enactor.login(account)
+        self.core.selectscreen(self.enactor)
 
 
 class CreateCommand(_LoginCommand):
@@ -54,7 +56,6 @@ class WelcomeScreenCommand(_LoginCommand):
     re_match = re.compile(r"^(?P<cmd>look)(?: +(?P<args>.+)?)?", flags=re.IGNORECASE)
 
     def execute(self):
-        print("IS THIS HAPPENING?")
         self.core.welcomescreen(self.enactor)
 
 
@@ -74,12 +75,12 @@ class CharCreateCommand(Command):
         mdict = self.match_obj.groupdict()
         if not (name := mdict.get("args", None)):
             raise CommandException("Must enter a name for the character!")
-        char, error = self.core.mapped_typeclasses["character"].create(name=name)
+        char, error = self.core.mapped_typeclasses["mobile"].create(name=name)
         if error:
             raise CommandException(error)
-        sess = self.enactor.netobj.session
-        char.relations.create(sess.account, "character_of")
-        self.msg(text=ANSIString("Character '{char.name}' created! Use |wcharselect {char.name}|n to join the game!"))
+        acc = self.enactor.get_account()
+        acc.relations.set("account_characters", char, "present", True)
+        self.msg(text=ANSIString(f"Character '{char.name}' created! Use |wcharselect {char.name}|n to join the game!"))
 
 
 class CharSelectCommand(Command):
@@ -87,7 +88,27 @@ class CharSelectCommand(Command):
     re_match = re.compile(r"^(?P<cmd>charselect)(?: +(?P<args>.+)?)?", flags=re.IGNORECASE)
 
     def execute(self):
-        self.msg(text="Not yet implemented...")
+        mdict = self.match_obj.groupdict()
+        acc = self.enactor.get_account()
+        chars = acc.relations.all('account_characters')
+        if not (args := mdict.get("args", None)):
+            names = ', '.join([obj.name for obj in chars])
+            self.msg(text=f"You have the following characters: {names}")
+            return
+        if not (found := partial_match(args, chars, key=lambda x: x.name)):
+            self.msg(text=f"Sorry, no character found named: {args}")
+            return
+        pview, errors = found.get_or_create_playview()
+        if errors:
+            raise CommandException(errors)
+        self.enactor.join(pview)
+
+        if (pview := found.get_playview()):
+            self.enactor.join(pview)
+        else:
+            pview, errors = self.core.mapped_typeclasses["playview"].create(objid=f"playview_{found.objid}")
+            pview.set_character(found)
+
 
 
 class SelectScreenCommand(Command):

@@ -108,6 +108,8 @@ class Module(GameDBModule):
         typeclasses["CoreRoom"] = RoomTypeClass
         from .typeclasses.exit import ExitTypeClass
         typeclasses["CoreExit"] = ExitTypeClass
+        from . typeclasses.mobile import MobileTypeClass
+        typeclasses['CoreMobile'] = MobileTypeClass
 
     def init_settings(self, settings):
         settings.CORE_TYPECLASS_MAP = {
@@ -115,7 +117,8 @@ class Module(GameDBModule):
             "account": "CoreAccount",
             "playview": "CorePlayView",
             "room": "CoreRoom",
-            "exit": "CoreExit"
+            "exit": "CoreExit",
+            "mobile": "CoreMobile"
         }
         settings.CORE_WELCOMESCREEN = render_welcome_screen
         settings.CORE_SELECTSCREEN = render_select_screen
@@ -175,12 +178,16 @@ class Module(GameDBModule):
             # Should do some kind of error handling here, and kick the connection that we can't support.
             return
         conn = kwargs['connection']
+        created = False
         if not (obj := self.objects.get(conn.name, None)):
             obj, err = typeclass.create(objid=conn.name, name=conn.name)
             if err:
                 # Handle error, kick client, blahblah.
                 return
+            created = True
         obj.connection = conn
+        if created:
+            self.welcomescreen(obj)
 
     def net_client_command(self, event, *args, **kwargs):
         conn = kwargs["connection"]

@@ -4,6 +4,7 @@ from collections import OrderedDict
 from .mush.parser import split_unescaped_text, identify_squares
 from .commands.base import CommandException
 
+
 class CpuTimeExceeded(Exception):
     pass
 
@@ -145,4 +146,4 @@ class CmdQueue:
                 if (entry := self.queue_data.pop(pid, None)):
                     await self.execute(entry, pid)
             except Exception as e:
-                print(f"Oops, CmdQueue encountered: {str(e)}")
+                print(f"Oops, CmdQueue encountered Exception: {str(e)}")

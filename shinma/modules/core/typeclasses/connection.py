@@ -25,11 +25,11 @@ class ConnectionTypeClass(BaseTypeClass):
 
     def get_account(self):
         if (all := self.reverse["account_connections"]):
-            return all[0]
+            return list(all)[0]
 
     def get_playview(self):
         if (all := self.reverse["playview_connections"]):
-            return all[0]
+            return list(all)[0]
 
     def get_next_cmd_object(self, obj_chain):
         return self.get_account()
