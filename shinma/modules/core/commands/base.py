@@ -54,7 +54,7 @@ class Command:
         """
 
     def at_pre_execute(self):
-        print("pre-execute occured!")
+        pass
 
     def at_post_execute(self):
         pass
@@ -66,17 +66,37 @@ class Command:
         return f"<{self.__class__.__name__}: {self.name}>"
 
 
-class CommandGroup:
+class BaseCommandMatcher:
+    priority = 0
+    core = None
 
     def __init__(self, name):
         self.name = name
-        self.cmds = set()
+        self.at_cmdmatcher_creation()
 
-    def at_cmdgroup_creation(self):
+    @classmethod
+    def access(self, enactor):
+        return True
+
+    def at_cmdmatcher_creation(self):
         """
         This is called when the CommandGroup is instantiated in order to load
         Commands. use self.add(cmdclass) to add Commands.
         """
+        pass
+
+    def match(self, enactor, text, obj_chain):
+        pass
+
+    def __repr__(self):
+        return f"<{self.__class__.__name__}: {self.name}>"
+
+
+class PythonCommandMatcher(BaseCommandMatcher):
+
+    def __init__(self, name):
+        self.cmds = set()
+        super().__init__(name)
 
     def add(self, cmd_class):
         self.cmds.add(cmd_class)
@@ -86,6 +106,3 @@ class CommandGroup:
             if cmd.access(enactor) and (result := cmd.match(enactor, text)):
                 obj_chain[enactor.typeclass_name] = self
                 return cmd(enactor, result, self, obj_chain)
-
-    def __repr__(self):
-        return f"<{self.__class__.__name__}: {self.name}>"

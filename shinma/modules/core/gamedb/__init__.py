@@ -1,10 +1,7 @@
 from shinma.core import ShinmaModule
 from . objects import GameObject
 from . tags import Tag
-
-
-class GameObjectException(Exception):
-    pass
+from . exception import GameObjectException
 
 
 class Module(ShinmaModule):
@@ -60,6 +57,8 @@ class Module(ShinmaModule):
         if objid in self.objects:
             raise GameObjectException(f"Objid {objid} is already in use!")
         gobj = GameObject(self, objid, name, initial_data)
+        gobj.load_initial()
+        gobj.load_relations()
         self.objects[objid] = gobj
         return gobj
 

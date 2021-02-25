@@ -2,8 +2,8 @@ from . base import BaseTypeClass, Msg
 
 
 class RoomTypeClass(BaseTypeClass):
-    typeclass_name = "room"
+    typeclass_name = "CoreRoom"
     prefix = "room"
-    initial_data = {
-        "tags": "room"
+    class_initial_data = {
+        "tags": ["room"]
     }

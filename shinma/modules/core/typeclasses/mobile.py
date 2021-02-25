@@ -2,8 +2,8 @@ from . base import BaseTypeClass, Msg
 
 
 class MobileTypeClass(BaseTypeClass):
-    typeclass_name = "mobile"
+    typeclass_name = "CoreMobile"
     prefix = "mobile"
-    initial_data = {
-        "tags": "mobile"
+    class_initial_data = {
+        "tags": ["mobile"]
     }

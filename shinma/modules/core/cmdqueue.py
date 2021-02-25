@@ -117,6 +117,7 @@ class CmdQueue:
             while s is not None:
                 cmd = enactor.find_cmd(s)
                 if cmd:
+                    cmd.core = self.core
                     cmd.at_pre_execute()
                     try:
                         cmd.execute()

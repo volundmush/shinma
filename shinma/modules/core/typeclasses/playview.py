@@ -2,10 +2,10 @@ from . base import BaseTypeClass, Msg
 
 
 class PlayViewTypeClass(BaseTypeClass):
-    typeclass_name = "playview"
+    typeclass_name = "CorePlayView"
     prefix = "playview"
-    initial_data = {
-        "tags": "playview"
+    class_initial_data = {
+        "tags": ["playview"]
     }
 
     def get_puppet(self):

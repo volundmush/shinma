@@ -126,7 +126,6 @@ class Connection:
         """
         This message is received when a client sends a text command.
         """
-        print(f"{self} got a {msg}")
         self.engine.dispatch_module_event("net_client_command", text=msg["line"], connection=self)
 
     async def msg_client_lines(self, msg):
@@ -256,7 +255,7 @@ class Module(ShinmaModule):
                 await self.create_client(data)
 
     async def msg_client_general(self, msg):
-        if "id" in msg and (conn := self.connections.get(msg["id"], None)):
+        if (conn := self.connections.get(msg.get("id", None), None)):
             await conn.incoming_queue.put(msg)
 
     async def msg_client_list(self, msg):

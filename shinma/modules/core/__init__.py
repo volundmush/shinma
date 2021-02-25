@@ -1,9 +1,10 @@
-from shinma.core import ShinmaModule
+from collections import defaultdict
 from shinma.utils import import_from_module
+from . gamedb import Module as GameDBModule
 from . cmdqueue import QueueEntry, CmdQueue
-from . commands.base import CommandGroup
 from . commands import connection as LoginCmds
-
+from . utils.welcome import render_welcome_screen
+from . utils.selectscreen import render_select_screen
 
 TAGS = ("account", "connection", "session", "playview")
 
@@ -72,12 +73,11 @@ OBJECTS = {
 }
 
 
-class Module(ShinmaModule):
+class Module(GameDBModule):
     name = "core"
     version = "0.0.1"
     requirements = {
         "net": {"min": "0.0.1"},
-        "gamedb": {"min": "0.0.1"}
     }
 
     def __init__(self, engine, *args, **kwargs):
@@ -87,54 +87,95 @@ class Module(ShinmaModule):
         engine.subscribe_event("net_client_gmcp", self.net_client_gmcp)
         engine.subscribe_event("net_client_disconnected", self.net_client_disconnected)
         engine.subscribe_event("net_client_reconfigured", self.net_client_reconfigured)
+        engine.subscribe_event("core_load_typeclasses", self.core_typeclasses)
+        engine.subscribe_event("core_load_cmdfamilies", self.core_cmdfamilies)
         self.cmdqueue = CmdQueue(self)
-        self.cmdgroups = dict()
+        self.cmdfamilies = dict()
         self.typeclasses = dict()
-        self.objects = dict()
-        self.objmanager = None
+        self.mapped_typeclasses = dict()
+        self.welcomescreen = None
+        self.selectscreen = None
+
+    def core_typeclasses(self, event, *args, **kwargs):
+        typeclasses = kwargs["typeclasses"]
+        from .typeclasses.connection import ConnectionTypeClass
+        typeclasses["CoreConnection"] = ConnectionTypeClass
+        from .typeclasses.account import AccountTypeClass
+        typeclasses["CoreAccount"] = AccountTypeClass
+        from .typeclasses.playview import PlayViewTypeClass
+        typeclasses["CorePlayView"] = PlayViewTypeClass
+        from .typeclasses.room import RoomTypeClass
+        typeclasses["CoreRoom"] = RoomTypeClass
+        from .typeclasses.exit import ExitTypeClass
+        typeclasses["CoreExit"] = ExitTypeClass
 
     def init_settings(self, settings):
-        settings.CORE_TYPECLASSES = dict()
-        from . typeclasses.connection import ConnectionTypeClass
-        settings.CORE_TYPECLASSES["connection"] = ConnectionTypeClass
-        from . typeclasses.account import AccountTypeClass
-        settings.CORE_TYPECLASSES["account"] = AccountTypeClass
-        from . typeclasses.playview import PlayViewTypeClass
-        settings.CORE_TYPECLASSES["playview"] = PlayViewTypeClass
-        from . typeclasses.room import RoomTypeClass
-        settings.CORE_TYPECLASSES["room"] = RoomTypeClass
-        from . typeclasses.exit import ExitTypeClass
-        settings.CORE_TYPECLASSES["exit"] = ExitTypeClass
-        from . typeclasses.welcome import WelcomeScreenTypeClass
-        settings.CORE_TYPECLASSES["welcomescreen"] = WelcomeScreenTypeClass
+        settings.CORE_TYPECLASS_MAP = {
+            "connection": "CoreConnection",
+            "account": "CoreAccount",
+            "playview": "CorePlayView",
+            "room": "CoreRoom",
+            "exit": "CoreExit"
+        }
+        settings.CORE_WELCOMESCREEN = render_welcome_screen
+        settings.CORE_SELECTSCREEN = render_select_screen
+
+
+    def search_tag(self, tagname, text, exact=False):
+        tag = self.get_tag(tagname)
+        return tag.search(text, exact)
+
+    def load_typeclasses(self):
+        typeclasses = dict()
+        self.engine.dispatch_module_event("core_load_typeclasses", typeclasses=typeclasses)
+
+        for k, v in typeclasses.items():
+            if isinstance(v, str):
+                typeclass = import_from_module(v)
+                typeclass.core = self
+                self.typeclasses[k] = typeclass
+            else:
+                v.core = self
+                self.typeclasses[k] = v
+
+        for k, v in self.engine.settings.CORE_TYPECLASS_MAP.items():
+            self.mapped_typeclasses[k] = self.typeclasses[v]
+
+    def core_cmdfamilies(self, event, *args, **kwargs):
+        cmdfamilies = kwargs["cmdfamilies"]
+        cmdfamilies["connection"]["core_login"] = LoginCmds.LoginCommandMatcher("core_login")
+        cmdfamilies["connection"]["core_select"] = LoginCmds.SelectCommandMatcher("core_select")
+
+
+    def load_cmdfamilies(self):
+        cmdfamilies = defaultdict(dict)
+        self.engine.dispatch_module_event("core_load_cmdfamilies", cmdfamilies=cmdfamilies)
+
+        for k, v in cmdfamilies.items():
+            for grp in v.values():
+                grp.core = self
+            self.cmdfamilies[k] = sorted(v.values(), key=lambda g: getattr(g, "priority", 0))
 
     def setup(self):
-        for k, v in self.engine.settings.CORE_TYPECLASSES.items():
-            if isinstance(v, str):
-                self.typeclasses[k] = import_from_module(v)
-            else:
-                self.typeclasses[k] = v
-        for k, v in self.typeclasses.items():
-            v.core = self
+        self.load_typeclasses()
+        self.load_cmdfamilies()
 
-        g1 = CommandGroup("connection")
-        g1.add(LoginCmds.CreateCommand)
-        g1.add(LoginCmds.ConnectCommand)
-        g1.add(LoginCmds.HelpCommand)
-        g1.add(LoginCmds.CharCreateCommand)
-        g1.add(LoginCmds.CharSelectCommand)
-        self.cmdgroups[g1.name] = g1
+        self.welcomescreen = self.engine.settings.CORE_WELCOMESCREEN
+        if isinstance(self.welcomescreen, str):
+            self.welcomescreen = import_from_module(self.welcomescreen)
 
-        self.objmanager = self.engine.modules["gamedb"]
-        self.objmanager.process_preload()
+
+        self.selectscreen = self.engine.settings.CORE_SELECTSCREEN
+        if isinstance(self.selectscreen, str):
+            self.selectscreen = import_from_module(self.selectscreen)
 
 
     def net_client_connected(self, event, *args, **kwargs):
-        if not (typeclass := self.typeclasses.get("connection", None)):
+        if not (typeclass := self.mapped_typeclasses.get("connection", None)):
             # Should do some kind of error handling here, and kick the connection that we can't support.
             return
         conn = kwargs['connection']
-        if not (obj := self.ojects.get(conn.name, None)):
+        if not (obj := self.objects.get(conn.name, None)):
             obj, err = typeclass.create(objid=conn.name, name=conn.name)
             if err:
                 # Handle error, kick client, blahblah.

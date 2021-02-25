@@ -2,8 +2,8 @@ from . base import BaseTypeClass, Msg
 
 
 class ExitTypeClass(BaseTypeClass):
-    typeclass_name = "exit"
+    typeclass_name = "CoreExit"
     prefix = "exit"
-    initial_data = {
-        "tags": "exit"
+    class_initial_data = {
+        "tags": ["exit"]
     }

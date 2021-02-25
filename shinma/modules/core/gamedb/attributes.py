@@ -1,5 +1,5 @@
 from typing import Any, Dict
-from . import GameObjectException
+from . exception import GameObjectException
 
 
 class Attribute:

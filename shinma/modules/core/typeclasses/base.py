@@ -1,7 +1,27 @@
 import random
 import string
-from shinma.utils import to_str
 from typing import Any
+from shinma.utils import to_str
+from .. gamedb.objects import GameObject
+from .. gamedb.exception import GameObjectException
+
+
+class ScriptHandler:
+
+    def __init__(self, obj):
+        self.obj = obj
+        self.scripts = dict()
+
+    def dispatch_event(self, event: str, *args, **kwargs):
+        return [v.on_object_event(self.obj, event, *args, **kwargs) for k, v in self.scripts.items()]
+
+    def setup(self):
+        final = set()
+        for proto in self.obj.prototypes:
+            final = final.union(proto.scripts)
+        self.scripts = {s.name: s for s in final}
+        for s in final:
+            s.objects.add(self.obj)
 
 
 class Msg:
@@ -38,14 +58,11 @@ class Msg:
         return c
 
 
-class BaseTypeClass:
+class BaseTypeClass(GameObject):
     typeclass_name = None
-    core = None
     prefix = "shinmaobject"
-    initial_data = None
-
-    def __init__(self, obj):
-        self.obj = obj
+    class_initial_data = None
+    command_families = set()
 
     @classmethod
     def generate_id(cls, prefix=None):
@@ -67,25 +84,20 @@ class BaseTypeClass:
         if name is None:
             name = objid
         if initial_data is None:
-            initial_data = cls.initial_data
+            initial_data = cls.class_initial_data
         try:
-            obj = cls.core.objmanager.create_object(objid, name, initial_data=initial_data)
-            wrap_obj = cls(obj)
-            cls.core.objects[objid] = wrap_obj
-        except cls.core.objmanager.exception_class as e:
+            obj = cls(objid, name, initial_data=initial_data)
+            cls.core.objects[objid] = obj
+            obj.load_initial()
+            obj.load_relations()
+            obj.attributes.set("_core", "typeclass", cls.typeclass_name)
+        except GameObjectException as e:
+            cls.core.objects.pop(objid, None)
             return None, str(e)
-        return wrap_obj, None
+        return obj, None
 
     def __repr__(self):
         return f"<{self.__class__.__name__} TypeClass: {self.objid} - {self.name}>"
-
-    @property
-    def name(self):
-        return self.obj.name
-
-    @property
-    def objid(self):
-        return self.obj.objid
 
     def __str__(self):
         return self.name
@@ -109,7 +121,7 @@ class BaseTypeClass:
         pass
 
     def location(self):
-        if (loc := self.obj.locations.get("contents", None)):
+        if (loc := self.locations.get("contents", None)):
             return self.core.objects.get(loc[0], None)
         return None
 
@@ -119,8 +131,12 @@ class BaseTypeClass:
     def render_appearance_internal(self, viewer=None):
         pass
 
-    def get_cmd_groups(self):
-        return []
+    def get_cmd_matchers(self):
+        results = set()
+        for fam in self.command_families:
+            results = results.union(self.core.cmdfamilies.get(fam, []))
+        results = [matcher for matcher in results if matcher.access(self)]
+        return sorted(results, key=lambda g: getattr(g, "priority", 0))
 
     def get_next_cmd_object(self, obj_chain):
         return None
@@ -128,16 +144,15 @@ class BaseTypeClass:
     def find_cmd(self, text: str, obj_chain=None):
         if obj_chain is None:
             obj_chain = dict()
-        for g in self.get_cmd_groups():
+        for g in self.get_cmd_matchers():
             if (cmd := g.match(self, text, obj_chain)):
                 return cmd
         if (next_obj := self.get_next_cmd_object(obj_chain)):
             obj_chain[self.typeclass_name] = self
             next_obj.find_cmd(text, obj_chain)
 
-
     def get_attribute(self, category: str, name: str, default: Any = None):
-        return self.obj.attributes.get(category, name)
+        return self.attributes.get(category, name)
 
     def _get_obj(self, category, attrname, field):
         if (out := getattr(self, field, None)):
@@ -147,3 +162,8 @@ class BaseTypeClass:
         if (obj := self.core.get_obj(attr)):
             setattr(self, field, obj)
             return obj
+
+    def _set_obj(self, category, attrname, field, value):
+        self.attributes.set(category, attrname, value.objid)
+        setattr(self, field, value)
+

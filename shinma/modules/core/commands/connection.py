@@ -1,16 +1,11 @@
 import re
-from . base import Command, CommandException
+from . base import Command, CommandException, PythonCommandMatcher
 from ...net.ansi import ANSIString
 
 
 class _LoginCommand(Command):
     re_quoted = re.compile(r'"(?P<name>.+)"(: +(?P<password>.+)?)?', flags=re.IGNORECASE)
     re_unquoted = re.compile(r'^(?P<name>\S+)(?: +(?P<password>.+)?)?', flags=re.IGNORECASE)
-
-    @classmethod
-    def access(cls, enactor):
-        # enactor should be a Connection here...
-        return enactor.get_account() is None
 
     def parse_login(self, error):
         mdict = self.match_obj.groupdict()
@@ -32,15 +27,12 @@ class ConnectCommand(_LoginCommand):
 
     def execute(self):
         name, password = self.parse_login(ANSIString('Usage: |wconnect <username> <password>|n or |wconnect "<user name>" password|n'))
-        account, error = self.game.search_namespace("account", name, exact=True)
+        account, error = self.core.search_tag("account", name, exact=True)
         if error:
             raise CommandException(error)
         if not account:
             raise CommandException("Sorry, that was an incorrect username or password.")
-        session, error = self.enactor.netobj.authenticate(account, password)
-        if error:
-            raise CommandException(error)
-        self.enactor.netobj.login(session)
+        self.enactor.login(account)
 
 
 class CreateCommand(_LoginCommand):
@@ -49,12 +41,21 @@ class CreateCommand(_LoginCommand):
 
     def execute(self):
         name, password = self.parse_login(ANSIString('Usage: |wcreate <username> <password>|n or |wcreate "<user name>" password|n'))
-        account, error = self.game.spawn_object(self.app.settings.PROTOTYPES["account"], name=name)
+        account, error = self.core.mapped_typeclasses["account"].create(name=name)
         if error:
             raise CommandException(error)
         # just ignoring password for now.
         cmd = f'connect "{account.name}" <password>' if ' ' in account.name else f'connect {account.name} <password>'
         self.msg(text=f"Account created! You can login with |w{cmd}|n")
+
+
+class WelcomeScreenCommand(_LoginCommand):
+    name = "look"
+    re_match = re.compile(r"^(?P<cmd>look)(?: +(?P<args>.+)?)?", flags=re.IGNORECASE)
+
+    def execute(self):
+        print("IS THIS HAPPENING?")
+        self.core.welcomescreen(self.enactor)
 
 
 class HelpCommand(_LoginCommand):
@@ -65,22 +66,15 @@ class HelpCommand(_LoginCommand):
         self.msg(text="Pretend I'm showing some help here.")
 
 
-class _AuthCommand(Command):
-
-    @classmethod
-    def access(cls, enactor):
-        return enactor.get_account() is not None
-
-
-class CharCreateCommand(_AuthCommand):
+class CharCreateCommand(Command):
     name = "charcreate"
     re_match = re.compile(r"^(?P<cmd>charcreate)(?: +(?P<args>.+)?)?", flags=re.IGNORECASE)
 
-    def do_execute(self):
+    def execute(self):
         mdict = self.match_obj.groupdict()
         if not (name := mdict.get("args", None)):
             raise CommandException("Must enter a name for the character!")
-        char, error = self.game.spawn_object(self.app.settings.PROTOTYPES["character"], name=name)
+        char, error = self.core.mapped_typeclasses["character"].create(name=name)
         if error:
             raise CommandException(error)
         sess = self.enactor.netobj.session
@@ -88,9 +82,40 @@ class CharCreateCommand(_AuthCommand):
         self.msg(text=ANSIString("Character '{char.name}' created! Use |wcharselect {char.name}|n to join the game!"))
 
 
-class CharSelectCommand(_AuthCommand):
+class CharSelectCommand(Command):
     name = "charselect"
     re_match = re.compile(r"^(?P<cmd>charselect)(?: +(?P<args>.+)?)?", flags=re.IGNORECASE)
 
-    def do_execute(self):
+    def execute(self):
         self.msg(text="Not yet implemented...")
+
+
+class SelectScreenCommand(Command):
+    name = "look"
+    re_match = re.compile(r"^(?P<cmd>look)(?: +(?P<args>.+)?)?", flags=re.IGNORECASE)
+
+    def execute(self):
+        self.core.selectscreen(self.enactor)
+
+
+class LoginCommandMatcher(PythonCommandMatcher):
+
+    def access(self, enactor):
+        return enactor.get_account() is None
+
+    def at_cmdmatcher_creation(self):
+        self.add(CreateCommand)
+        self.add(ConnectCommand)
+        self.add(HelpCommand)
+        self.add(WelcomeScreenCommand)
+
+
+class SelectCommandMatcher(PythonCommandMatcher):
+
+    def access(self, enactor):
+        return enactor.get_account() is not None
+
+    def at_cmdmatcher_creation(self):
+        self.add(CharSelectCommand)
+        self.add(CharCreateCommand)
+        self.add(SelectScreenCommand)
