@@ -89,12 +89,14 @@ class Module(GameDBModule):
         engine.subscribe_event("net_client_reconfigured", self.net_client_reconfigured)
         engine.subscribe_event("core_load_typeclasses", self.core_typeclasses)
         engine.subscribe_event("core_load_cmdfamilies", self.core_cmdfamilies)
+        engine.subscribe_event("core_load_functions", self.core_functions)
         self.cmdqueue = CmdQueue(self)
         self.cmdfamilies = dict()
         self.typeclasses = dict()
         self.mapped_typeclasses = dict()
         self.welcomescreen = None
         self.selectscreen = None
+        self.functions = dict()
 
     def core_typeclasses(self, event, *args, **kwargs):
         typeclasses = kwargs["typeclasses"]
@@ -149,7 +151,6 @@ class Module(GameDBModule):
         cmdfamilies["connection"]["core_login"] = LoginCmds.LoginCommandMatcher("core_login")
         cmdfamilies["connection"]["core_select"] = LoginCmds.SelectCommandMatcher("core_select")
 
-
     def load_cmdfamilies(self):
         cmdfamilies = defaultdict(dict)
         self.engine.dispatch_module_event("core_load_cmdfamilies", cmdfamilies=cmdfamilies)
@@ -159,9 +160,19 @@ class Module(GameDBModule):
                 grp.core = self
             self.cmdfamilies[k] = sorted(v.values(), key=lambda g: getattr(g, "priority", 0))
 
+    def load_functions(self):
+        functions = dict()
+        self.engine.dispatch_module_event("core_load_functions", functions=functions)
+
+    def core_functions(self, event, *args, **kwargs):
+        functions = kwargs["functions"]
+        from . mush.functions.string import AnsiFunction
+        functions['ansi'] = AnsiFunction
+
     def setup(self):
         self.load_typeclasses()
         self.load_cmdfamilies()
+        self.load_functions()
 
         self.welcomescreen = self.engine.settings.CORE_WELCOMESCREEN
         if isinstance(self.welcomescreen, str):

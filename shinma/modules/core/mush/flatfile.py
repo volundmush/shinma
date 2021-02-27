@@ -1,4 +1,5 @@
 from collections import defaultdict
+from . ansi import AnsiString
 
 
 class FlatLine:
@@ -36,7 +37,7 @@ def parse_flatlines(generator: callable):
     for line in generator:
         yield FlatLine(line)
     else:
-        return
+        return None
 
 
 def parse_flatfile(path: str, chunk_size: int = 50):
@@ -85,32 +86,48 @@ def parse_flatfile(path: str, chunk_size: int = 50):
                 else:
                     scratch += c
     else:
-        return
+        return None
 
 
 class Flag:
     def __init__(self, name):
         self.name = name
         self.letter = ""
-        self.type = ""
-        self.perms = ""
-        self.negate_perms = ""
+        self.type = set()
+        self.perms = set()
+        self.negate_perms = set()
         self.aliases = set()
 
+        self.objects = set()
+
     def set_line(self, line: FlatLine):
-        pass
+        if line.name == "letter":
+            self.letter = line.value
+        elif line.name == "type":
+            self.type = set(line.value.split(' '))
+        elif line.name == "perms":
+            self.perms = set(line.value.split(' '))
+        elif line.name == "negate_perms":
+            self.negate_perms = set(line.value.split(' '))
+        elif line.name == "alias":
+            self.aliases.add(line.value)
 
 
 class Attribute:
     def __init__(self, name):
         self.name = name
-        self.flags = ""
-        self.creator = ""
+        self.flags = set()
+        self.creator = -1
         self.data = ""
         self.aliases = set()
 
     def set_line(self, line: FlatLine):
-        pass
+        if line.name == "flags":
+            self.flags = set(line.value.split(' '))
+        elif line.name == "creator":
+            self.creator = line.value
+        elif line.name == "data":
+            self.data = line.value
 
 
 class ObjAttribute:
@@ -119,10 +136,18 @@ class ObjAttribute:
         self.value = ""
         self.owner = -1
         self.flags = set()
-        self.derefs = 46
+        self.derefs = -1
 
     def set_line(self, line: FlatLine):
-        pass
+
+        if line.name == "owner":
+            self.owner = line.value
+        elif line.name == "flags":
+            self.flags = set(line.value.split(' '))
+        elif line.name == "derefs":
+            self.derefs = line.value
+        elif line.name == "value":
+            self.value = AnsiString.from_markup(line.value)
 
 
 class ObjLock:
@@ -134,7 +159,14 @@ class ObjLock:
         self.key = ""
 
     def set_line(self, line: FlatLine):
-        pass
+        if line.name == "creator":
+            self.creator = line.value
+        elif line.name == "flags":
+            self.flags = set(line.value.split(' '))
+        elif line.name == "derefs":
+            self.derefs = line.value
+        elif line.name == "value":
+            self.value = line.value
 
 
 class DbObject:
@@ -142,9 +174,7 @@ class DbObject:
         self.dbref = dbref
         self.name = ""
         self.location = -1
-        self.contents = -1
-        self.exits = -1
-        self.next = -1
+        self.exits = set()
         self.parent = -1
         self.owner = -1
         self.zone = -1
@@ -158,9 +188,74 @@ class DbObject:
         self.attributes = dict()
         self.locks = dict()
 
+        self.children = set()
+        self.contents = set()
+        self.exits = set()
+        self.parent_obj = None
+        self.owner_obj = None
+        self.zone_obj = None
+        self.owns = set()
+        self.zoned = set()
+
     @classmethod
     def from_lines(cls, dbref, lines):
         obj = cls(dbref)
+
+        attr = None
+        lock = None
+
+        section = "header"
+        for i, line in enumerate(lines):
+            if line.depth == 0:
+                if line.name == "attrcount" and line.value > 0:
+                    section = "attributes"
+                elif line.name == "lockcount" and line.value > 0:
+                    section = "locks"
+                else:
+                    if section != "header":
+                        section = "header"
+                    obj.set_line(line)
+            if line.depth == 1:
+                if line.name in ("name", "type"):
+                    if section == "attributes":
+                        if attr:
+                            obj.attributes[attr.name] = attr
+                        attr = ObjAttribute(line.value)
+                    elif section == "locks":
+                        if lock:
+                            obj.locks[lock.name] = lock
+                        lock = ObjLock(line.value)
+            if line.depth == 2:
+                if section == "attributes":
+                    attr.set_line(line)
+                elif section == "locks":
+                    lock.set_line(line)
+
+        return obj
+
+    def set_line(self, line: FlatLine):
+        if line.name == "name":
+            self.name = line.value
+        elif line.name == "location":
+            self.location = line.value
+        elif line.name == "parent":
+            self.parent = line.value
+        elif line.name == "owner":
+            self.owner = line.value
+        elif line.name == "pennies":
+            self.pennies = line.value
+        elif line.name == "type":
+            self.type = line.value
+        elif line.name == "flags":
+            self.flags = set(line.value.split(' '))
+        elif line.name == "powers":
+            self.powers = set(line.value.split(' '))
+        elif line.name == "warnings":
+            self.warnings = set(line.value.split(' '))
+        elif line.name == "created":
+            self.created = line.value
+        elif line.name == "modified":
+            self.modified = line.value
 
 
 class PennDB:
@@ -174,6 +269,38 @@ class PennDB:
         self.objects = dict()
         self.attributes = dict()
 
+        self.type_index = defaultdict(set)
+
+    def setup(self):
+        for k, v in self.objects.items():
+            self.type_index[v.type].add(v)
+            if v.type == 4:
+                if (found := self.objects.get(v.location, None)):
+                    found.exits.add(v)
+            elif v.type in (2, 8):
+                if (found := self.objects.get(v.location, None)):
+                    found.contents.add(v)
+
+            if (parent := self.objects.get(v.parent, None)):
+                v.parent_obj = parent
+                parent.children.add(v)
+
+            if (zone := self.objects.get(v.zone, None)):
+                v.zone_obj = zone
+                zone.zoned.add(v)
+
+            if (owner := self.objects.get(v.owner, None)):
+                v.owner_obj = owner
+                owner.owns.add(v)
+
+            for fname in v.flags:
+                if (flag := self.flags.get(fname, None)):
+                    flag.objects.add(v)
+
+            for pname in v.powers:
+                if (flag := self.powers.get(pname, None)):
+                    flag.objects.add(v)
+
     @classmethod
     def from_outdb(cls, path: str):
         db = cls()
@@ -186,7 +313,6 @@ class PennDB:
         cur_obj = -1
 
         for i, line in enumerate(parse_flatlines(parse_flatfile(path))):
-            print(f"Processing line {i}: {line}")
 
             if section == "header":
                 if line.text.startswith(("+V-")):
@@ -277,9 +403,9 @@ class PennDB:
                     attr_cur = None
 
             if section == "objects":
-                if line.depth == 0 and line.header == "!":
+                if line.depth == 0 and line.header:
                     cur_obj = line.value
-                elif line.depth == 0 and line.text.startswith("**END OF DUMP"):
+                elif line.depth == 0 and line.text.startswith("***END OF DUMP"):
                     break
                 else:
                     obj_storage[cur_obj].append(line)
@@ -287,4 +413,11 @@ class PennDB:
         for k, v in obj_storage.items():
             db.objects[k] = DbObject.from_lines(k, v)
 
+        db.setup()
         return db
+
+
+class VolDB(PennDB):
+    def __init__(self):
+        super().__init__()
+        self.ccp = None

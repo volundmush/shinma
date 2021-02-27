@@ -1,0 +1,4 @@
+
+
+class MushError(Exception):
+    pass

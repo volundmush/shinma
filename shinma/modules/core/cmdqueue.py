@@ -1,72 +1,146 @@
 import asyncio
+import re
 from typing import List
 from collections import OrderedDict
 from .mush.parser import split_unescaped_text, identify_squares
 from .commands.base import CommandException
+from .mush.ansi import AnsiString
 
 
-class CpuTimeExceeded(Exception):
-    pass
+class StackFrame:
+    def __init__(self, entry, parent):
+        self.parent = parent
+        self.entry = entry
+        self.enactor = None
+        self.spoof = None
+        self.executor = None
+        self.caller = None
+        self.dolist_val = None
+        self.iter_val = None
+        self.localized = False
+        if parent:
+            self.vars = parent.vars
+        else:
+            self.vars = entry.vars
 
-
-class ExecFlags:
-    QUEUE_DEFAULT = 0x0000
-    QUEUE_PLAYER = 0x0001
-    QUEUE_OBJECT = 0x0002
-    QUEUE_SOCKET = 0x0004
-    QUEUE_INPLACE = 0x0008
-    QUEUE_NO_BREAKS = 0x0010
-    QUEUE_PRESERVE_QREG = 0x0020
-    QUEUE_CLEAR_QREG = 0x0040
-    QUEUE_NOLIST = 0x0200
-    QUEUE_BREAK = 0x0400
-    QUEUE_RETRY = 0x800
-    QUEUE_DEBUG = 0x1000
-    QUEUE_NODEBUG = 0x2000
-    QUEUE_PRIORITY = 0x4000
-    QUEUE_DEBUG_PRIVS = 0x8000
-    QUEUE_EVENT = 0x10000
-    QUEUE_RECURSE = (QUEUE_INPLACE | QUEUE_NO_BREAKS | QUEUE_PRESERVE_QREG)
-
-    PE_INFO_DEFAULT = 0x000
-    PE_INFO_SHARE = 0x001
-    PE_INFO_CLONE = 0x002
-    PE_INFO_COPY_ENV = 0x004
-    PE_INFO_COPY_QREG = 0x008
-    PE_INFO_COPY_CMDS = 0x010
-
-
-class PeInfo:
-
-    def __init__(self):
-        self.fun_invocations = 0
-        self.fun_recursions = 0
-        self.call_depth = 0
-        self.nest_depth = 0
-        self.debugging = 0
-        self.refcount = 0
-        self.debug_strings = None
-        self.vars = dict()
-        self.cmd_raw = None
-        self.cmd_evaled = None
-        self.attrname = None
+    def localize(self):
+        self.localized = True
+        # We are localizing this frame, so break the connection to its parent.
+        self.vars = dict(self.vars)
 
 
 class QueueEntry:
+    re_func = re.compile(r"^(?P<bangs>!|!!|!\$|!!\$|!\^|!!\^)?(?P<func>\w+)(?P<open>\()")
 
-    def __init__(self, enactor: str, executor: str, caller: str, actions: List[str]):
+    def __init__(self, enactor: str, executor: str, caller: str, actions: List[str], spoof: str = None):
+        self.source = enactor
         self.enactor = enactor
         self.executor = executor
         self.caller = caller
+        self.spoof = spoof
         self.actions = actions
         self.semaphore_obj = None
         self.inplace = None
         self.next = None
         self.pid = None
+        self.stack = list()
+        self.frame = None
+        self.cpu_start = None
+        self.func_count = 0
+        self.cmd = None
         self.vars = dict()
-        self.connection = None
-        self.pe_info = None
-        self.save_attrname = None
+
+    def eval_sub(self, text: str):
+        """
+        Eventually this will process % and other substitutions.
+        """
+        return '', text
+
+    def find_unescaped(self, character: str, remaining: str):
+        """
+        Looks ahead in remaining text to find a closing parentheses, and returns the idx of it.
+        """
+        escaped = False
+        for i, c in enumerate(remaining):
+            if escaped:
+                escaped = False
+            else:
+                if c == '\\':
+                    escaped = True
+                elif c == character:
+                    return i
+        return None
+
+    def evaluate(self, text: str, localize: bool = False, spoof: str = None):
+        if not len(text):
+            return AnsiString("")
+        # if cpu exceeded, cancel here.
+        # if fil exceeded, cancel here.
+        # if recursion limit reached, cancel here.
+
+        if self.frame:
+            new_frame = StackFrame(self, self.frame)
+            self.frame = new_frame
+            if localize:
+                new_frame.localize()
+            self.stack.append(new_frame)
+        else:
+            self.frame = StackFrame(self, None)
+            self.stack.append(self.frame)
+
+        out = AnsiString()
+        remaining = text
+        escaped = False
+        called_func = False
+
+        i = -1
+        while i <= len(remaining):
+            i += 1
+            c = remaining[i]
+
+            if escaped:
+                out += c
+                escaped = False
+            else:
+                if c == '\\':
+                    escaped = True
+                elif c == '%':
+                    subbed, remaining = self.eval_sub(remaining[i:])
+                    if subbed:
+                        out += subbed
+                elif c == '[':
+                    if (closing := self.find_close_bracket(remaining[i:])):
+                        section = remaining[i+1:closing-1]
+                        remaining = remaining[closing+1:]
+                        out += self.evaluate(section)
+                elif c == '(' and not called_func:
+                    if (closing := self.find_close_paren(remaining[i:])):
+                        if (match := self.re_func.fullmatch(out.clean)):
+                            gdict = match.groupdict()
+                            if (func := self.find_function(gdict["func"])):
+                                # hooray we have a function!
+                                ready_fun = func(self, remaining[i + 1:])
+                                ready_fun.execute()
+                                called_func = True
+                                # the function's output will replace everything that lead up to its calling.
+                                out = ready_fun.output
+                            else:
+                                # no function matched... don't eval...
+                                out += c
+                                called_func = True
+                    else:
+                        # no closing paren... don't eval function...
+                        out += c
+                        called_func = True
+                else:
+                    out += c
+
+        # if we reach down here, then we are doing well and can pop a frame off.
+        self.stack.pop(-1)
+        if self.stack:
+            self.frame = self.stack[-1]
+
+        return out
 
 
 class WaitAction:

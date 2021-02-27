@@ -7,16 +7,15 @@ def split_unescaped_text(text: str, split_at=" ", ignore_empty: bool = False, li
     paren_depth = 0
     square_depth = 0
     curly_depth = 0
-    split_count = 0
 
-    idx = [0]
-    split = []
+    remaining = text
+    while len(remaining):
+        found = None
 
-    for i, c in enumerate(text):
-        if escaped:
-            escaped = False
-        else:
-            if c == "\\":
+        for i, c in enumerate(remaining):
+            if escaped:
+                escaped = False
+            elif c == "\\":
                 escaped = True
             elif c == "{":
                 curly_depth += 1
@@ -31,25 +30,19 @@ def split_unescaped_text(text: str, split_at=" ", ignore_empty: bool = False, li
             elif c == ")" and paren_depth > 0:
                 paren_depth -= 1
             elif c == split_at:
-                idx.append(i)
-                idx.append(i+1)
-                split_count += 1
-                if split_count == limit:
-                    break
+                found = i
+                break
             else:
                 pass
 
-    idx.append(len(text))
-
-    it = iter(idx)
-    if ignore_empty:
-        for i in it:
-            if found := text[i:next(it)]:
-                split.append(found)
-    else:
-        for i in it:
-            split.append(text[i:next(it)])
-    return split
+        if found is None:
+            yield remaining
+            remaining = ''
+        else:
+            before = remaining[:found]
+            after = remaining[found:]
+            remaining = after
+            yield before
 
 
 def identify_squares(text: str) -> List[Tuple[int, int]]:
