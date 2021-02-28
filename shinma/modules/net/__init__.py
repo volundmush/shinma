@@ -167,8 +167,7 @@ class Connection:
             self.outgoing_queue.put_nowait({
                 "kind": "session_line",
                 "id": self.name,
-                "line": parse_ansi(text, strip_ansi=True if not self.ansi else False, xterm256=self.xterm256,
-                                   mxp=self.mxp)
+                "line": text
             })
         if self.oob():
             for cmd, value in data.items():

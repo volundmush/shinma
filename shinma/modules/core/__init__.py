@@ -164,6 +164,9 @@ class Module(GameDBModule):
         functions = dict()
         self.engine.dispatch_module_event("core_load_functions", functions=functions)
 
+        for k, v in functions.items():
+            self.functions[k.lower()] = v
+
     def core_functions(self, event, *args, **kwargs):
         functions = kwargs["functions"]
         from . mush.functions.string import AnsiFunction

@@ -4,3 +4,4 @@ tinydb
 pytz
 pyoctree
 ujson
+ansi-escape-room

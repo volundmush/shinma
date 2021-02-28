@@ -1,6 +1,6 @@
 import re
 from . base import Command, CommandException, PythonCommandMatcher
-from ...net.ansi import ANSIString
+from ..mush.ansi import AnsiString
 from shinma.utils import partial_match
 
 
@@ -27,7 +27,8 @@ class ConnectCommand(_LoginCommand):
     re_match = re.compile(r"^(?P<cmd>connect)(?: +(?P<args>.+))?", flags=re.IGNORECASE)
 
     def execute(self):
-        name, password = self.parse_login(ANSIString('Usage: |wconnect <username> <password>|n or |wconnect "<user name>" password|n'))
+        usage = AnsiString("Usage: ") + AnsiString.from_args("hw", "connect <username> <password>") + " or " + AnsiString.from_args("hw", 'connect "<user name>" password')
+        name, password = self.parse_login(usage)
         account, error = self.core.search_tag("account", name, exact=True)
         if error:
             raise CommandException(error)
@@ -42,7 +43,8 @@ class CreateCommand(_LoginCommand):
     re_match = re.compile(r"^(?P<cmd>create)(?: +(?P<args>.+)?)?", flags=re.IGNORECASE)
 
     def execute(self):
-        name, password = self.parse_login(ANSIString('Usage: |wcreate <username> <password>|n or |wcreate "<user name>" password|n'))
+        usage = AnsiString("Usage: ") + AnsiString.from_args("hw", 'create <username> <password>') + ' or ' + AnsiString.from_args("hw", 'create "<user name>" <password>')
+        name, password = self.parse_login(usage)
         account, error = self.core.mapped_typeclasses["account"].create(name=name)
         if error:
             raise CommandException(error)
@@ -80,7 +82,7 @@ class CharCreateCommand(Command):
             raise CommandException(error)
         acc = self.enactor.get_account()
         acc.relations.set("account_characters", char, "present", True)
-        self.msg(text=ANSIString(f"Character '{char.name}' created! Use |wcharselect {char.name}|n to join the game!"))
+        self.msg(text=AnsiString(f"Character '{char.name}' created! Use ") + AnsiString.from_args("hw", f"charselect {char.name}") + " to join the game!")
 
 
 class CharSelectCommand(Command):
@@ -110,13 +112,23 @@ class CharSelectCommand(Command):
             pview.set_character(found)
 
 
-
 class SelectScreenCommand(Command):
     name = "look"
     re_match = re.compile(r"^(?P<cmd>look)(?: +(?P<args>.+)?)?", flags=re.IGNORECASE)
 
     def execute(self):
         self.core.selectscreen(self.enactor)
+
+
+class ThinkCommand(Command):
+    name = "think"
+    re_match = re.compile(r"^(?P<cmd>think)(?: +(?P<args>.+)?)?", flags=re.IGNORECASE)
+
+    def execute(self):
+        mdict = self.match_obj.groupdict()
+        if (args := mdict.get("args", None)):
+            if (out := self.entry.evaluate(args)):
+                self.msg(text=out)
 
 
 class LoginCommandMatcher(PythonCommandMatcher):
@@ -140,3 +152,4 @@ class SelectCommandMatcher(PythonCommandMatcher):
         self.add(CharSelectCommand)
         self.add(CharCreateCommand)
         self.add(SelectScreenCommand)
+        self.add(ThinkCommand)

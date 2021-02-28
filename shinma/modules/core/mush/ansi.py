@@ -5,9 +5,14 @@ import html
 from typing import List
 
 
+class AnsiException(Exception):
+    pass
+
+
 class AnsiMarkup:
     BEEP_CHAR = '\a'
     ESC_CHAR = '\x1B'
+    ANSI_START = ESC_CHAR + '['
     ANSI_RAW_NORMAL = '\x1B[0m'
 
     TAG_START = '\002'
@@ -101,13 +106,14 @@ class AnsiMarkup:
     COL_CYAN = 36
     COL_WHITE = 37
 
-    CS_HEX = 0
-    CS_16 = 1
-    CS_256 = 2
-    CS_256HEX = 3
-    CS_RGB = 4
-    CS_NAME = 5
-    CS_AUTO = 6
+    CS_NONE = 0
+    CS_HEX = 1
+    CS_16 = 2
+    CS_256 = 3
+    CS_RGBHEX = 4
+    CS_RGB = 5
+    CS_NAME = 6
+    CS_XNAME = 7
 
 
 STATES = {
@@ -115,6 +121,73 @@ STATES = {
     '<': "rgb",
     '+': "name"
 }
+
+NEW_MATCH = {
+    AnsiMarkup.CS_HEX: re.compile(r"^#(?P<data>[0-9A-F]{6})$", flags=re.IGNORECASE),
+    AnsiMarkup.CS_RGBHEX: re.compile(r"^<#(?P<data>[0-9A-F]{6})>$", flags=re.IGNORECASE),
+    AnsiMarkup.CS_RGB: re.compile(r"^<(?P<red>[0-9]{1,3}) (?P<green>[0-9]{1,3}) (?P<blue>[0-9]{1,3})>$"),
+    AnsiMarkup.CS_XNAME: re.compile(r"^\+xterm(?P<number>\d+)$", flags=re.IGNORECASE),
+    AnsiMarkup.CS_NAME: re.compile(r"^\+(?!xterm)(?P<name>\w+)$", flags=re.IGNORECASE)
+}
+
+CHAR_MAP = {
+    'f': AnsiMarkup.CBIT_FLASH,
+    'h': AnsiMarkup.CBIT_HILITE,
+    'i': AnsiMarkup.CBIT_INVERT,
+    'u': AnsiMarkup.CBIT_UNDERSCORE
+}
+
+CBIT_MAP = {
+    AnsiMarkup.CBIT_HILITE: '1',
+    AnsiMarkup.CBIT_UNDERSCORE: '4',
+    AnsiMarkup.CBIT_INVERT: '7',
+    AnsiMarkup.CBIT_FLASH: '5'
+}
+
+BASE_COLOR_MAP = {
+    'd': None,
+    'x': 30,
+    'r': 31,
+    'g': 32,
+    'y': 33,
+    'b': 34,
+    'm': 35,
+    'c': 36,
+    'w': 37
+}
+
+
+class AnsiData:
+    def __init__(self):
+        self.bits = 0
+        self.off_bits = 0
+        self.fg = ''
+        self.bg = ''
+        self.fg_mode = AnsiMarkup.CS_NONE
+        self.bg_mode = AnsiMarkup.CS_NONE
+        self.reset = False
+
+    def __str__(self):
+        out = AnsiMarkup.ANSI_START
+        data = False
+        styles = [v for k, v in CBIT_MAP.items() if self.bits | k]
+        if styles:
+            data = True
+            out += ';'.join(styles)
+        if self.fg:
+            if self.fg_mode == AnsiMarkup.CS_16:
+                if (find := BASE_COLOR_MAP.get(self.fg, None)):
+                    data = True
+                    out += str(find)
+        if self.bg:
+            if self.bg_mode == AnsiMarkup.CS_16:
+                if (find := BASE_COLOR_MAP.get(self.bg.lower(), None)):
+                    data = True
+                    out += str(find + 10)
+        if data:
+            out += 'm'
+            return out
+        return ''
 
 
 def separate_codes(codes: str):
@@ -138,6 +211,15 @@ def separate_codes(codes: str):
             else:
                 # there is NOTHING special ahead... devour and compress it all, return empty string
                 return True, ''.join(current.split()), ''
+        elif state == 'num':
+            for i, c in enumerate(current):
+                if not c.isnumeric():
+                    numeric = current[:i]
+                    remaining = current[i:]
+                    return True, numeric, remaining
+            # if this is still running, then the whole string must be numeric...
+            return True, current, ''
+
         elif state == "new":
             # it's very possible that we were passed an empty string...
             if not current:
@@ -164,6 +246,8 @@ def separate_codes(codes: str):
     def get_section(state: str, current: str):
         if state == "old":
             return retrieve_section(state, current)
+        elif state == "num":
+            return retrieve_section(state, current)
         elif state == "fg":
             return retrieve_section("new", current)
         elif state == "bg":
@@ -181,17 +265,24 @@ def separate_codes(codes: str):
             state = "bg" if codes[0] == '/' else 'fg'
             ok, section, remaining = get_section(state, codes)
             if not ok:
-                raise ValueError(f"#-1 INVALID ANSI DEFINITION: {section+remaining}")
+                raise AnsiException(f"#-1 INVALID ANSI DEFINITION: {section+remaining}")
             codes = remaining
             if section:
                 yield (state, section)
-        elif codes.isspace():
+        elif codes[0].isspace():
             # just ignore spaces in the middle of nowhere out here.
             codes = codes[1:]
+        elif codes[0].isnumeric():
+            ok, section, remaining = get_section('num', codes)
+            if not ok:
+                raise AnsiException(f"#-1 INVALID ANSI DEFINITION: {section+remaining}")
+            codes = remaining
+            if section:
+                yield ("num", section)
         else:
             ok, section, remaining = get_section("old", codes)
             if not ok:
-                raise ValueError(f"#-1 INVALID ANSI DEFINITION: {section+remaining}")
+                raise AnsiException(f"#-1 INVALID ANSI DEFINITION: {section+remaining}")
             codes = remaining
             if section:
                 yield ("letters", section)
@@ -213,18 +304,36 @@ class Markup:
         self.ansi = None
         self.html_start = None
         self.html_end = None
-        self.bits = 0
-        self.off_bits = 0
-        self.fg = ''
-        self.bg = ''
-        self.fg_new = False
-        self.bg_new = False
 
     def enter(self):
         return f"{AnsiMarkup.TAG_START}{self.code}{self.start_text}{AnsiMarkup.TAG_END}"
 
     def exit(self):
         return f"{AnsiMarkup.TAG_START}{self.code}/{self.end_text}{AnsiMarkup.TAG_END}"
+
+    def enter_render(self, current):
+        if self.code == 'c':
+            return self.enter_render_ansi(current)
+        elif self.code == 'p':
+            return self.enter_render_mxp(current)
+
+    def enter_render_ansi(self, current):
+        pass
+
+    def enter_render_mxp(self, current):
+        pass
+
+    def exit_render(self, entering):
+        if self.code == 'c':
+            return self.exit_render_ansi(entering)
+        elif self.code == 'p':
+            return self.exit_render_mxp(entering)
+
+    def exit_render_ansi(self, entering):
+        pass
+
+    def exit_render_mxp(self, entering):
+        pass
 
     def ancestors(self):
         out = list()
@@ -245,56 +354,41 @@ class Markup:
             self.setup_html()
 
     def setup_ansi(self):
+        self.ansi = AnsiData()
         for mode, code in separate_codes(self.start_text):
             if mode == "letters":
                 for c in code:
                     if c == 'n':
                         # ANSI reset
-                        self.bits = 0
-                        self.off_bits = ~0
-                        self.fg = 'n'
-                        self.bg = ''
-                        self.fg_new = False
-                        self.bg_new = False
-                    elif c == 'f':
-                        self.bits |= AnsiMarkup.CBIT_FLASH
-                        self.off_bits &= ~AnsiMarkup.CBIT_FLASH
-                    elif c == 'h':
-                        self.bits |= AnsiMarkup.CBIT_HILITE
-                        self.off_bits &= ~AnsiMarkup.CBIT_HILITE
-                    elif c == 'i':
-                        self.bits |= AnsiMarkup.CBIT_INVERT
-                        self.off_bits &= ~AnsiMarkup.CBIT_INVERT
-                    elif c == 'u':
-                        self.bits |= AnsiMarkup.CBIT_UNDERSCORE
-                        self.off_bits &= ~AnsiMarkup.CBIT_UNDERSCORE
-                    elif c == 'F':
-                        self.off_bits |= AnsiMarkup.CBIT_FLASH
-                        self.bits &= ~AnsiMarkup.CBIT_FLASH
-                    elif c == 'H':
-                        self.off_bits |= AnsiMarkup.CBIT_HILITE
-                        self.bits &= ~AnsiMarkup.CBIT_HILITE
-                    elif c == 'I':
-                        self.off_bits |= AnsiMarkup.CBIT_INVERT
-                        self.bits &= ~AnsiMarkup.CBIT_INVERT
-                    elif c == 'U':
-                        self.off_bits |= AnsiMarkup.CBIT_UNDERSCORE
-                        self.bits &= ~AnsiMarkup.CBIT_UNDERSCORE
-                    elif c in ('b', 'c', 'g', 'm', 'r', 'w', 'x', 'y', 'd'):
-                        self.fg = c
-                        self.fg_new = False
-                    elif c in ('B', 'C', 'G', 'M', 'R', 'W', 'X', 'Y', 'D'):
-                        self.bg = c
-                        self.bg_new = False
+                        self.ansi.bits = 0
+                        self.ansi.off_bits = ~0
+                        self.ansi.fg = ''
+                        self.ansi.bg = ''
+                        self.ansi.fg_mode = AnsiMarkup.CS_NONE
+                        self.ansi.bg_mode = AnsiMarkup.CS_NONE
+                    elif c in CHAR_MAP:
+                        bit = CHAR_MAP[c]
+                        self.ansi.bits |= bit
+                        self.ansi.off_bits &= ~bit
+                    elif c.lower() in CHAR_MAP:
+                        bit = CHAR_MAP[c.lower()]
+                        self.ansi.off_bits |= bit
+                        self.ansi.bits &= ~bit
+                    elif c in BASE_COLOR_MAP:
+                        self.ansi.fg = c
+                        self.ansi.fg_mode = AnsiMarkup.CS_16
+                    elif c.lower() in BASE_COLOR_MAP:
+                        self.ansi.bg = c.lower()
+                        self.ansi.bg_mode = AnsiMarkup.CS_16
                     else:
                         pass  # I dunno what we got passed, but it ain't relevant.
 
             elif mode == "fg":
-                self.fg_new = True
-                self.fg = code
+                self.ansi.fg_new = True
+                self.ansi.fg = code
             elif mode == "bg":
-                self.bg_new = True
-                self.bg = code
+                self.ansi.bg_new = True
+                self.ansi.bg = code
 
 
     def setup_html(self):
@@ -360,7 +454,7 @@ class AnsiString:
             width = len(self.clean)
         else:
             width = int(width)
-        output = None
+        output = self
 
         if width >= len(self.clean):
             if align == "<":
@@ -399,8 +493,8 @@ class AnsiString:
                 n = self.clone()
                 for i, char in enumerate(other):
                     n.markup_idx_map.append((None, char))
-                    n.regen_clean()
-                    return n
+                n.clean += other
+                return n
 
     def __iadd__(self, other):
         if isinstance(other, AnsiString):
@@ -412,6 +506,18 @@ class AnsiString:
                 self.markup_idx_map.append((None, char))
             self.clean += other
             return self
+
+    def __radd__(self, other):
+        if isinstance(other, str):
+            n = self.clone()
+            old_map = n.markup_idx_map
+            prefix = list()
+            for i, c in enumerate(other):
+                prefix.append((None, c))
+            n.markup_idx_map = prefix
+            n.markup_idx_map.extend(old_map)
+            n.regen_clean()
+            return n
 
     def regen_clean(self):
         self.clean = ''.join(t[1] for t in self.markup_idx_map)
@@ -620,7 +726,7 @@ class AnsiString:
     def from_args(cls, code: str, text: str):
         try:
             return cls(f"{AnsiMarkup.TAG_START}c{code}{AnsiMarkup.TAG_END}{text}{AnsiMarkup.TAG_START}c/{AnsiMarkup.TAG_END}")
-        except ValueError as e:
+        except AnsiException as e:
             return cls(f"#-1 INVALID ANSI DEFINITION: {e}")
 
     def plain(self):
@@ -641,7 +747,9 @@ class AnsiString:
 
         cur = None
         out = ""
-        for m, c in tuples:
+        piece = ''
+
+        for m, c in self.markup_idx_map:
             if m:
                 if cur:
                     # We are inside of a markup!
@@ -651,11 +759,11 @@ class AnsiString:
                     elif m.parent == cur:
                         # we moved into a child.
                         cur = m
-                        out += m.enter()
+                        out += m.enter_render()
                         out += c
                     elif cur.parent == m:
                         # we left a child and re-entered its parent
-                        out += cur.exit()
+                        out += cur.render_exit()
                         out += c
                         cur = m
                     else:
@@ -667,25 +775,25 @@ class AnsiString:
                             # this is an ancestor if we have an index. Otherwise, it will raise ValueError.
                             # We need to close out of the ancestors we have left. A slice accomplishes that.
                             for ancestor in reversed(ancestors[idx:]):
-                                out += ancestor.exit()
+                                out += ancestor.render_exit()
 
                         except ValueError:
                             # this is not an ancestor. Exit all ancestors.
                             for ancestor in reversed(ancestors):
-                                out += ancestor.exit()
+                                out += ancestor.render_exit()
 
                         # now we enter the new tag.
                         cur = m
                         for ancestor in m.ancestors():
-                            out += ancestor.enter()
-                        out += m.enter()
+                            out += ancestor.enter_render()
+                        out += m.enter_render()
                         out += c
                 else:
                     # We are not inside of a markup tag. Well, that changes now.
                     cur = m
                     for ancestor in m.ancestors():
-                        out += ancestor.enter()
-                    out += m.enter()
+                        out += ancestor.enter_render()
+                    out += m.enter_render()
                     out += c
             else:
                 # we are moving into a None markup...
@@ -703,7 +811,7 @@ class AnsiString:
             for ancestor in reversed(cur.ancestors()):
                 out += ancestor.exit()
 
-        return out
+        return ''.join(t[1] for t in tuples)
 
     def encoded(self):
         if not self.markup:

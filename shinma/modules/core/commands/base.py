@@ -47,6 +47,7 @@ class Command:
         self.match_obj = match_obj
         self.cmd_group = group
         self.obj_chain = obj_chain
+        self.entry = None
 
     def execute(self):
         """

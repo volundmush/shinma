@@ -11,11 +11,10 @@ class BaseFunction:
     odd_args = False
     eval_args = True
 
-    def __init__(self, entry, remaining):
+    def __init__(self, entry, arg_data):
         self.entry = entry
         self.output = ''
-        self.start = remaining
-        self.remaining = remaining
+        self.arg_data = arg_data
         self.args = list()
         self.args_eval = dict()
         self.error = False
@@ -25,48 +24,43 @@ class BaseFunction:
         paren_depth = 0
         square_depth = 0
         curly_depth = 0
+        out = ''
 
-        while True:
-            found_comma = None
-            found_end = None
-
-            for i, c in enumerate(self.remaining):
-                if escaped:
-                    escaped = False
-                elif c == "\\":
-                    escaped = True
-                elif c == "{":
-                    curly_depth += 1
-                elif c == "}" and curly_depth > 0:
-                    curly_depth -= 1
-                elif c == "[":
-                    square_depth += 1
-                elif c == "]" and square_depth > 0:
-                    square_depth -= 1
-                elif c == "(":
-                    paren_depth += 1
-                elif c == ")" and paren_depth > 0:
-                    paren_depth -= 1
-                elif c == ')' and paren_depth == 0:
-                    found_end = i
-                    break
-                elif c == ',' and paren_depth == 0 and square_depth == 0 and curly_depth == 0:
-                    found_comma = i
-                    break
-                else:
-                    pass
-
-            if found_end:
-                self.remaining = self.remaining[found_end+1:]
-                break
-            elif found_comma:
-                before = self.remaining[:found_comma]
-                after = self.remaining[found_comma+1:]
-                self.remaining = after
-                yield before
+        for i, c in enumerate(self.arg_data):
+            print(f"{self} scanning char {i} - {c}")
+            if escaped:
+                escaped = False
+                out += c
+            elif c == "\\":
+                escaped = True
+            elif c == "{":
+                curly_depth += 1
+                out += c
+            elif c == "}" and curly_depth > 0:
+                curly_depth -= 1
+                out += c
+            elif c == "[":
+                square_depth += 1
+                out += c
+            elif c == "]" and square_depth > 0:
+                square_depth -= 1
+                out += c
+            elif c == "(":
+                paren_depth += 1
+                out += c
+            elif c == ")" and paren_depth > 0:
+                paren_depth -= 1
+                out += c
+            elif c == ')' and paren_depth == 0:
+                out += c
+            elif c == ',' and paren_depth == 0 and square_depth == 0 and curly_depth == 0:
+                yield out
+                out = ''
             else:
-                yield self.remaining
-                break
+                out += c
+
+        if out:
+            yield out
 
     def scan_arguments(self):
         """
@@ -79,7 +73,7 @@ class BaseFunction:
 
         if self.min_args is not None and self.max_args is not None and self.min_args == self.max_args and len(raw_args) != self.min_args:
             self.output = AnsiString(
-                f"#-1 FUNCTION {self.name.upper()} EXPECTS EXACTLY {self.min_args} ARGUMENTS BUT GOT {len(raw_args)}")
+                f"#-1 FUNCTION {self.name.upper()} EXPECTS {self.min_args} ARGUMENTS BUT GOT {len(raw_args)}")
             self.error = True
             return False
 
@@ -116,11 +110,14 @@ class BaseFunction:
         return True
 
     def execute(self):
-        if not (outcome := self.separate_args()):
+        if not self.scan_arguments():
             return False
+        print(f"{self} detected args: {self.args}")
         if self.eval_args:
             for i, arg in enumerate(self.args):
-                self.args_eval[i] = self.context.evaluate(arg)
+                print(f"{self} is recursively evaluating: {arg}")
+                self.args_eval[i] = self.entry.evaluate(arg)
+            print(f"RECURSE EVAL RESULTS: {self.args_eval}")
         outcome = self.do_execute()
         if outcome is None:
             return True

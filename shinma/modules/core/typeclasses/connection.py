@@ -1,4 +1,5 @@
 from . base import BaseTypeClass, Msg
+from .. mush.ansi import AnsiString
 
 
 class ConnectionTypeClass(BaseTypeClass):
@@ -18,6 +19,20 @@ class ConnectionTypeClass(BaseTypeClass):
 
     def receive_msg(self, message: Msg):
         if self.connection:
+            if "text" in message.data:
+                text = message.data["text"]
+                if isinstance(text, AnsiString):
+                    message.data["text"] = text.render(ansi=self.connection.ansi, xterm256=self.connection.xterm256, mxp=self.connection.mxp)
+                elif isinstance(text, str):
+                    text = AnsiString(text)
+                    message.data["text"] = text.render(ansi=self.connection.ansi, xterm256=self.connection.xterm256,
+                                                       mxp=self.connection.mxp)
+                else:
+                    text = str(text)
+                    text = AnsiString(text)
+                    message.data["text"] = text.render(ansi=self.connection.ansi, xterm256=self.connection.xterm256,
+                                                       mxp=self.connection.mxp)
+
             self.connection.msg(message.data)
 
     def receive_relayed_msg(self, message: Msg):
