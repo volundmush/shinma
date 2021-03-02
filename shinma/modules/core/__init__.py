@@ -150,6 +150,7 @@ class Module(GameDBModule):
         cmdfamilies = kwargs["cmdfamilies"]
         cmdfamilies["connection"]["core_login"] = LoginCmds.LoginCommandMatcher("core_login")
         cmdfamilies["connection"]["core_select"] = LoginCmds.SelectCommandMatcher("core_select")
+        cmdfamilies["connection"]["core_connection"] = LoginCmds.ConnectionCommandMatcher("core_connection")
 
     def load_cmdfamilies(self):
         cmdfamilies = defaultdict(dict)
@@ -169,8 +170,9 @@ class Module(GameDBModule):
 
     def core_functions(self, event, *args, **kwargs):
         functions = kwargs["functions"]
-        from . mush.functions.string import AnsiFunction
-        functions['ansi'] = AnsiFunction
+        from . mush.functions.string import STRING_FUNCTIONS
+        for func in STRING_FUNCTIONS:
+            functions[func.name] = func
 
     def setup(self):
         self.load_typeclasses()

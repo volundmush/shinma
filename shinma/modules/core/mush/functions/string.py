@@ -17,3 +17,21 @@ class AnsiFunction(BaseFunction):
         else:
             self.error = False
             return True
+
+
+class ScrambleFunction(BaseFunction):
+    name = "scramble"
+    min_args = 0
+    max_args = 1
+
+    def do_execute(self):
+        if self.args:
+            text = self.args_eval[0]
+            self.output = text.scramble()
+            return True
+        else:
+            self.output = AnsiString()
+            return True
+
+
+STRING_FUNCTIONS = [AnsiFunction, ScrambleFunction]

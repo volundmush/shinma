@@ -4,4 +4,6 @@ tinydb
 pytz
 pyoctree
 ujson
-ansi-escape-room
+colored
+passlib
+argon2_cffi

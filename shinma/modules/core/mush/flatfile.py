@@ -1,5 +1,8 @@
+import re
+import hashlib
 from collections import defaultdict
 from . ansi import AnsiString
+from shinma.utils import partial_match
 
 
 class FlatLine:
@@ -170,11 +173,14 @@ class ObjLock:
 
 
 class DbObject:
-    def __init__(self, dbref: int):
-        self.dbref = dbref
+    def __init__(self, db, dbref: int):
+        self.db = db
+        self.id = dbref
         self.name = ""
         self.location = -1
         self.exits = set()
+        self.entrances = set()
+        self.destination = -1
         self.parent = -1
         self.owner = -1
         self.zone = -1
@@ -194,12 +200,22 @@ class DbObject:
         self.parent_obj = None
         self.owner_obj = None
         self.zone_obj = None
+        self.location_obj = None
+        self.destination_obj = None
         self.owns = set()
         self.zoned = set()
 
+    @property
+    def dbref(self):
+        return f"#{self.id}"
+
+    @property
+    def objid(self):
+        return f"#{self.id}:{self.created}"
+
     @classmethod
-    def from_lines(cls, dbref, lines):
-        obj = cls(dbref)
+    def from_lines(cls, db, dbref, lines):
+        obj = cls(db, dbref)
 
         attr = None
         lock = None
@@ -218,13 +234,11 @@ class DbObject:
             if line.depth == 1:
                 if line.name in ("name", "type"):
                     if section == "attributes":
-                        if attr:
-                            obj.attributes[attr.name] = attr
-                        attr = ObjAttribute(line.value)
+                        attr = db.attr_class(line.value)
+                        obj.attributes[attr.name] = attr
                     elif section == "locks":
-                        if lock:
-                            obj.locks[lock.name] = lock
                         lock = ObjLock(line.value)
+                        obj.locks[lock.name] = lock
             if line.depth == 2:
                 if section == "attributes":
                     attr.set_line(line)
@@ -256,9 +270,67 @@ class DbObject:
             self.created = line.value
         elif line.name == "modified":
             self.modified = line.value
+        elif line.name == "exits":
+            self.destination = line.value
+
+    def get(self, attr, default=None, inherit=True):
+        uattr = attr.upper()
+        if (found := self.attributes.get(uattr, None)):
+            return found
+        else:
+            if inherit and self.parent_obj:
+                return self.parent_obj.get(uattr, default=default)
+        return default
+
+    def ancestors(self, reversed=False):
+        out = list()
+        if self.parent_obj:
+            parent = self.parent_obj
+            out.append(parent)
+            while (parent := parent.parent_obj):
+                out.append(parent)
+        if reversed:
+            out.reverse()
+        return out
+
+    def lattr(self, pattern, inherit=False):
+        if not pattern:
+            return dict()
+        pattern = pattern.replace('`**', '`\S+').replace('*', '\w+')
+        re_pattern = re.compile(f"^{pattern}$", flags=re.IGNORECASE)
+        out = dict()
+        if inherit:
+            ancestors = self.ancestors(reversed=True)
+            ancestors.append(self)
+        else:
+            ancestors = [self]
+        for ancestor in ancestors:
+            out.update({k: v for k, v in ancestor.attributes.items() if re_pattern.match(k)})
+        return out
+
+    def lattrp(self, pattern):
+        return self.lattr(pattern, inherit=True)
+
+    def check_password(self, password):
+        old_hash = self.get('XYXXY')
+        if not old_hash:
+            return False
+        old_hash = old_hash.value.clean
+        hash_against = old_hash.split(':')[2]
+        check = hashlib.new('sha1')
+        if old_hash.startswith('1:'):
+            check.update(password.encode('utf-8'))
+            return check.hexdigest() == hash_against
+        elif old_hash.startswith('2:'):
+            salt = hash_against[0:2]
+            hash_against = hash_against[2:]
+            check.update(f"{salt}{password}".encode('utf-8'))
+            return check.hexdigest() == hash_against
 
 
 class PennDB:
+    obj_class = DbObject
+    attr_class = ObjAttribute
 
     def __init__(self):
         self.bitflags = 0
@@ -270,6 +342,8 @@ class PennDB:
         self.attributes = dict()
 
         self.type_index = defaultdict(set)
+        self.dbrefs = dict()
+        self.objids = dict()
 
     def setup(self):
         for k, v in self.objects.items():
@@ -277,9 +351,15 @@ class PennDB:
             if v.type == 4:
                 if (found := self.objects.get(v.location, None)):
                     found.exits.add(v)
+                    v.location_obj = found
+                if (found := self.objects.get(v.destination, None)):
+                    found.entrances.add(v)
+                    v.destination_obj = found
+
             elif v.type in (2, 8):
                 if (found := self.objects.get(v.location, None)):
                     found.contents.add(v)
+                    v.location_obj = found
 
             if (parent := self.objects.get(v.parent, None)):
                 v.parent_obj = parent
@@ -300,6 +380,9 @@ class PennDB:
             for pname in v.powers:
                 if (flag := self.powers.get(pname, None)):
                     flag.objects.add(v)
+
+            self.dbrefs[v.dbref] = v
+            self.objids[v.objid] = v
 
     @classmethod
     def from_outdb(cls, path: str):
@@ -411,13 +494,23 @@ class PennDB:
                     obj_storage[cur_obj].append(line)
 
         for k, v in obj_storage.items():
-            db.objects[k] = DbObject.from_lines(k, v)
+            db.objects[k] = cls.obj_class.from_lines(db, k, v)
 
         db.setup()
         return db
 
+    def isdbref(self, dbref):
+        return self.dbrefs.get(dbref, None)
 
-class VolDB(PennDB):
-    def __init__(self):
-        super().__init__()
-        self.ccp = None
+    def isobjid(self, objid):
+        return self.objids.get(objid, None)
+
+    def find_obj(self, dbref):
+        if isinstance(dbref, int):
+            return self.objects.get(dbref, None)
+        if not dbref:
+            return None
+        if ':' in dbref:
+            return self.isobjid(dbref)
+        else:
+            return self.isdbref(dbref)

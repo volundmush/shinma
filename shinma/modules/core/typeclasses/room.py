@@ -7,3 +7,4 @@ class RoomTypeClass(BaseTypeClass):
     class_initial_data = {
         "tags": ["room"]
     }
+

@@ -4,7 +4,7 @@ from typing import Any
 from shinma.utils import to_str
 from .. gamedb.objects import GameObject
 from .. gamedb.exception import GameObjectException
-
+from .. mush.ansi import AnsiString
 
 class ScriptHandler:
 
@@ -36,7 +36,7 @@ class Msg:
 
     def set(self, text=None, **kwargs):
         if text is not None:
-            if not (isinstance(text, str) or isinstance(text, tuple)):
+            if not (isinstance(text, AnsiString), isinstance(text, str) or isinstance(text, tuple)):
                 # sanitize text before sending across the wire
                 try:
                     text = to_str(text)
@@ -125,10 +125,10 @@ class BaseTypeClass(GameObject):
             return list(loc)[0]
         return None
 
-    def render_appearance_external(self, viewer=None):
+    def render_appearance_external(self, viewer):
         pass
 
-    def render_appearance_internal(self, viewer=None):
+    def render_appearance_internal(self, viewer):
         pass
 
     def get_cmd_matchers(self):

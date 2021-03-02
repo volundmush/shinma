@@ -22,7 +22,8 @@ class ConnectionTypeClass(BaseTypeClass):
             if "text" in message.data:
                 text = message.data["text"]
                 if isinstance(text, AnsiString):
-                    message.data["text"] = text.render(ansi=self.connection.ansi, xterm256=self.connection.xterm256, mxp=self.connection.mxp)
+                    message.data["text"] = text.render(ansi=self.connection.ansi, xterm256=self.connection.xterm256,
+                                                       mxp=self.connection.mxp)
                 elif isinstance(text, str):
                     text = AnsiString(text)
                     message.data["text"] = text.render(ansi=self.connection.ansi, xterm256=self.connection.xterm256,

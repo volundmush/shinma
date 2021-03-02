@@ -1,4 +1,7 @@
 from . base import BaseTypeClass, Msg
+from passlib.context import CryptContext
+
+CRYPT_CON = CryptContext(schemes=['argon2'])
 
 
 class AccountTypeClass(BaseTypeClass):
@@ -33,3 +36,14 @@ class AccountTypeClass(BaseTypeClass):
 
     def get_connections(self):
         return self.relations.all("account_connections")
+
+    def set_password(self, text, nohash=False):
+        if not nohash:
+            text = CRYPT_CON.hash(text)
+        self.attributes.set("_core", "password_hash", text)
+
+    def verify_password(self, text):
+        pass_hash = self.attributes.get("_core", "password_hash")
+        if not pass_hash:
+            return False
+        return CRYPT_CON.verify(text, pass_hash.value)
