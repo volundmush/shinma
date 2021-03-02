@@ -1,4 +1,4 @@
-from . base import BaseTypeClass, Msg
+from . base import BaseTypeClass
 from .. mush.ansi import AnsiString
 
 
@@ -17,26 +17,20 @@ class ConnectionTypeClass(BaseTypeClass):
         super().__init__(objid, name, initial_data)
         self.connection = None
 
-    def receive_msg(self, message: Msg):
+    def receive_msg(self, message):
         if self.connection:
-            if "text" in message.data:
-                text = message.data["text"]
-                if isinstance(text, AnsiString):
-                    message.data["text"] = text.render(ansi=self.connection.ansi, xterm256=self.connection.xterm256,
-                                                       mxp=self.connection.mxp)
-                elif isinstance(text, str):
-                    text = AnsiString(text)
-                    message.data["text"] = text.render(ansi=self.connection.ansi, xterm256=self.connection.xterm256,
-                                                       mxp=self.connection.mxp)
-                else:
-                    text = str(text)
-                    text = AnsiString(text)
-                    message.data["text"] = text.render(ansi=self.connection.ansi, xterm256=self.connection.xterm256,
-                                                       mxp=self.connection.mxp)
+            out = dict()
 
-            self.connection.msg(message.data)
+            if text := message.render(self):
+                out['text'] = text.render(ansi=self.connection.ansi, xterm256=self.connection.xterm256,
+                                              mxp=self.connection.mxp)
+            if data := message.data(self):
+                out['data'] = data
 
-    def receive_relayed_msg(self, message: Msg):
+            if out:
+                self.connection.msg(out)
+
+    def receive_relayed_msg(self, message):
         self.receive_msg(message)
 
     def get_account(self):
@@ -58,3 +52,8 @@ class ConnectionTypeClass(BaseTypeClass):
         if (account := self.get_account()):
             account.remove_connection(self)
             account.at_logout(self)
+
+    def get_width(self):
+        if self.connection:
+            return self.connection.width
+        return 78

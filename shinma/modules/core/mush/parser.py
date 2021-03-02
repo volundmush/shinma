@@ -8,41 +8,32 @@ def split_unescaped_text(text: str, split_at=" ", ignore_empty: bool = False, li
     square_depth = 0
     curly_depth = 0
 
-    remaining = text
-    while len(remaining):
-        found = None
+    out = ''
+    for i, c in enumerate(text):
+        if escaped:
+            escaped = False
+        if c == "\\":
+            escaped = True
+        elif c == "{" and not escaped:
+            curly_depth += 1
+        elif c == "}" and not escaped and curly_depth > 0:
+            curly_depth -= 1
+        elif c == "[" and not escaped:
+            square_depth += 1
+        elif c == "]" and not escaped and square_depth > 0:
+            square_depth -= 1
+        elif c == "(" and not escaped:
+            paren_depth += 1
+        elif c == ")" and not escaped and paren_depth > 0:
+            paren_depth -= 1
+        elif c == split_at and not escaped and max(curly_depth, square_depth, paren_depth) == 0:
+            yield out
+            out = ''
+            continue
+        out += c
 
-        for i, c in enumerate(remaining):
-            if escaped:
-                escaped = False
-            elif c == "\\":
-                escaped = True
-            elif c == "{":
-                curly_depth += 1
-            elif c == "}" and curly_depth > 0:
-                curly_depth -= 1
-            elif c == "[":
-                square_depth += 1
-            elif c == "]" and square_depth > 0:
-                square_depth -= 1
-            elif c == "(":
-                paren_depth += 1
-            elif c == ")" and paren_depth > 0:
-                paren_depth -= 1
-            elif c == split_at:
-                found = i
-                break
-            else:
-                pass
-
-        if found is None:
-            yield remaining
-            remaining = ''
-        else:
-            before = remaining[:found]
-            after = remaining[found:]
-            remaining = after
-            yield before
+    if out:
+        yield out
 
 
 def identify_squares(text: str) -> List[Tuple[int, int]]:

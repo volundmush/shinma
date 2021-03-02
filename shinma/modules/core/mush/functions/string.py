@@ -25,9 +25,8 @@ class ScrambleFunction(BaseFunction):
     max_args = 1
 
     def do_execute(self):
-        if self.args:
-            text = self.args_eval[0]
-            self.output = text.scramble()
+        if self.args_count:
+            self.output = self.args_eval[0].scramble()
             return True
         else:
             self.output = AnsiString()

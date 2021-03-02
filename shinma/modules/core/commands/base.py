@@ -1,4 +1,5 @@
 from asyncio import Queue
+import re
 
 
 class CommandException(Exception):
@@ -7,7 +8,7 @@ class CommandException(Exception):
 
 class Command:
     name = None  # Name must be set to a string!
-    re_match = None # this should be a re.compile() pattern
+    aliases = []
 
     @classmethod
     def access(cls, enactor):
@@ -38,7 +39,6 @@ class Command:
         if (result := cls.re_match.fullmatch(text)):
             return result
 
-
     def __init__(self, enactor, match_obj, group, obj_chain):
         """
         Instantiates the command.
@@ -66,6 +66,49 @@ class Command:
 
     def __repr__(self):
         return f"<{self.__class__.__name__}: {self.name}>"
+
+
+class MushCommand(Command):
+
+    def gather_args(self, noeval=False, split_at=',', stop_at='='):
+        out = list()
+        stopped = split_at
+        true_stop = [split_at, stop_at]
+        while stopped == split_at:
+            result, self.remaining, stopped = self.entry.evaluate(stop_at=true_stop, noeval=noeval)
+            out.append(result)
+        return out
+
+    def gather_arg(self, noeval=False):
+        result, self.remaining, stopped = self.entry.evaluate(stop_at=['='], noeval=noeval)
+
+    @classmethod
+    def match(cls, enactor, text):
+        """
+        Called by the CommandGroup to determine if this command matches.
+        Returns False or a Regex Match object.
+
+        Or any kind of match, really. The parsed match will be returned and re-used by .execute()
+        so use whatever you want.
+        """
+        if not (matcher := getattr(cls, 're_match', None)):
+            names = [cls.name]
+            names.extend(getattr(cls, 'aliases', []))
+            names = '|'.join(names)
+            cls.re_match = re.compile(
+                f"^(?P<cmd>{names}>\w+)(?P<switches>(/(\w+)?)+)?(?::(?P<mode>\S+)?)?(?:\s+(?P<args>(?P<lhs>[^=]+)(?:=(?P<rhs>.*))?)?)?",
+                flags=re.IGNORECASE)
+            matcher = cls.re_match
+
+        if (result := matcher.fullmatch(text)):
+            return result
+
+    def __init__(self, enactor, match_obj, group, obj_chain):
+        super().__init__(enactor, match_obj, group, obj_chain)
+        self.mdict = self.match_obj.groupdict()
+        self.cmd = self.mdict["cmd"]
+        self.args = self.mdict["args"]
+        self.remaining = self.args
 
 
 class BaseCommandMatcher:

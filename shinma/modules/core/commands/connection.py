@@ -2,7 +2,7 @@ import re
 import sys
 import time
 import traceback
-from . base import Command, CommandException, PythonCommandMatcher
+from . base import Command, MushCommand, CommandException, PythonCommandMatcher
 from ..mush.ansi import AnsiString
 from shinma.utils import partial_match
 from ..typeclasses.account import CRYPT_CON
@@ -129,15 +129,15 @@ class SelectScreenCommand(Command):
         self.core.selectscreen(self.enactor)
 
 
-class ThinkCommand(Command):
+class ThinkCommand(MushCommand):
     name = "think"
-    re_match = re.compile(r"^(?P<cmd>think)(?: +(?P<args>.+)?)?", flags=re.IGNORECASE)
+    aliases = ['th', 'thi', 'thin']
 
     def execute(self):
-        mdict = self.match_obj.groupdict()
-        if (args := mdict.get("args", None)):
-            if (out := self.entry.evaluate(args)):
-                self.msg(text=out)
+        if self.args:
+            result, remaining, stopped = self.entry.evaluate(self.remaining)
+            if result:
+                self.msg(text=result)
 
 
 class ImportCommand(Command):

@@ -1,4 +1,4 @@
-from . base import BaseTypeClass, Msg
+from . base import BaseTypeClass
 
 
 class ExitTypeClass(BaseTypeClass):

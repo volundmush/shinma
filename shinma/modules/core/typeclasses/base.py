@@ -5,6 +5,8 @@ from shinma.utils import to_str
 from .. gamedb.objects import GameObject
 from .. gamedb.exception import GameObjectException
 from .. mush.ansi import AnsiString
+from ..utils.formatter import FormatList, Text
+
 
 class ScriptHandler:
 
@@ -22,40 +24,6 @@ class ScriptHandler:
         self.scripts = {s.name: s for s in final}
         for s in final:
             s.objects.add(self.obj)
-
-
-class Msg:
-    __slots__ = ["source", "data", "relay_chain"]
-
-    def __init__(self, source, data=None):
-        self.source = source
-        if data is None:
-            data = dict()
-        self.data = data
-        self.relay_chain = list()
-
-    def set(self, text=None, **kwargs):
-        if text is not None:
-            if not (isinstance(text, AnsiString), isinstance(text, str) or isinstance(text, tuple)):
-                # sanitize text before sending across the wire
-                try:
-                    text = to_str(text)
-                except Exception:
-                    text = repr(text)
-            kwargs["text"] = text
-        self.data = kwargs
-
-    @classmethod
-    def create(cls, source, text=None, **kwargs):
-        msg = cls(source)
-        msg.set(text=text, **kwargs)
-        return msg
-
-    def relay(self, obj):
-        c = self.__class__(self.source, **self.data)
-        c.relay_chain = list(self.relay_chain)
-        c.relay_chain.append(obj)
-        return c
 
 
 class BaseTypeClass(GameObject):
@@ -105,19 +73,21 @@ class BaseTypeClass(GameObject):
     def listeners(self):
         return []
 
-    def msg(self, text=None, **kwargs):
-        self.send(Msg.create(self, text=text, **kwargs))
+    def msg(self, text, **kwargs):
+        flist = FormatList(self, **kwargs)
+        flist.add(Text(text))
+        self.send(flist)
 
-    def send(self, message: Msg):
+    def send(self, message: FormatList):
         self.receive_msg(message)
         for listener in self.listeners():
             if listener not in message.relay_chain:
                 listener.receive_relayed_msg(message.relay(self))
 
-    def receive_msg(self, message: Msg):
+    def receive_msg(self, message: FormatList):
         pass
 
-    def receive_relayed_msg(self, message: Msg):
+    def receive_relayed_msg(self, message: FormatList):
         pass
 
     def location(self):
@@ -151,3 +121,5 @@ class BaseTypeClass(GameObject):
             obj_chain[self.typeclass_name] = self
             next_obj.find_cmd(text, obj_chain)
 
+    def get_width(self):
+        return 78

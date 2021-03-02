@@ -64,67 +64,22 @@ class QueueEntry:
         else:
             return '', text
 
-    def find_unescaped(self, character: str, remaining: str):
-        """
-        Looks ahead in remaining text to find a closing parentheses, and returns the idx of it.
-        """
-        escaped = False
-        for i, c in enumerate(remaining):
-            if escaped:
-                escaped = False
-            else:
-                if c == '\\':
-                    escaped = True
-                elif c == character:
-                    return i
-        return None
-
-    def find_close_bracket(self, remaining: str):
-        print(f"FINDCLOSEBRACK: Searching {remaining}")
-        escaped = False
-        depth = 0
-        for i, c in enumerate(remaining):
-            print(f"SEARCH Char {i} - {c}")
-            if escaped:
-                escaped = False
-            else:
-                if c == '\\':
-                    escaped = True
-                elif c == '[':
-                    depth += 1
-                elif c == ']':
-                    if depth == 0:
-                        return i
-                    else:
-                        depth -= 1
-
-    def find_close_paren(self, remaining: str):
-        print(f"FINDCLOSEPAREN: Searching {remaining}")
-        escaped = False
-        depth = 0
-        for i, c in enumerate(remaining):
-            print(f"SEARCH Char {i} - {c}")
-            if escaped:
-                escaped = False
-            else:
-                if c == '\\':
-                    escaped = True
-                elif c == '(':
-                    depth += 1
-                elif c == ')':
-                    if depth == 0:
-                        return i
-                    else:
-                        depth -= 1
-
     def find_function(self, funcname: str):
         return self.core.functions.get(funcname.lower(), None)
 
-    def evaluate(self, text: str, localize: bool = False, spoof: str = None, called_recursively: bool = False):
-        print(f"EVAL: {text}")
-        print(f"CURRENT DEPTH: {len(self.stack)}")
+    def evaluate(self, text: str, localize: bool = False, spoof: str = None, called_recursively: bool = False, stop_at=None,
+                 recurse=True, substitute=True, functions=True, curly_literals=True, noeval=False):
+        if stop_at is None:
+            stop_at = list()
+        if isinstance(stop_at, str):
+            stop_at = [stop_at]
         if not len(text):
             return AnsiString("")
+        if noeval:
+            recurse=False
+            substitute=False
+            functions=False
+            curly_literals=False
         # if cpu exceeded, cancel here.
         # if fil exceeded, cancel here.
         # if recursion limit reached, cancel here.
@@ -143,12 +98,13 @@ class QueueEntry:
         remaining = text
         escaped = False
         called_func = False
+        stopped = None
+        curl_escaped = False
 
         i = -1
         while i < len(remaining)-1:
             i += 1
             c = remaining[i]
-            print(f"SCANNING Char {i} - {c}")
 
             if escaped:
                 out += c
@@ -156,63 +112,44 @@ class QueueEntry:
             else:
                 if c == '\\':
                     escaped = True
-                elif c == '%':
-                    print(f"SUB: Detected % at {i}")
+                elif c == '{' and curly_literals and not curl_escaped:
+                    curl_escaped = True
+                elif c == '}' and curly_literals and curl_escaped:
+                    curl_escaped = False
+                elif stop_at and c in stop_at:
+                    if curl_escaped:
+                        out += c
+                    else:
+                        remaining = remaining[i+1:]
+                        stopped = c
+                        break
+                elif c == '%' and substitute:
                     subbed, remaining = self.eval_sub(remaining[i:])
                     out += subbed
                     i = -1
-                elif c == '[':
-                    print(f"RECURSE: Detected [ at {i}")
-                    closing = self.find_close_bracket(remaining[i+1:])
-                    if closing is not None:
-                        print(f"RECURSE: Detected ] at {i+1+closing}")
-                        section = remaining[i+1:i+1+closing]
-                        remaining = remaining[i+closing+2:]
-                        i = -1
-                        print(f"RECURSE: Recursively evaluating: {section}")
-                        out += self.evaluate(section, called_recursively=True)
-                        print(f"RECURSE: Remaining to eval: {remaining}")
-                elif c == '(' and not called_func:
-                    print(f"FUNC: Detected ( at {i}")
+                elif c == '[' and recurse:
+                    evaled, remaining, stop_char = self.evaluate(remaining[i+1:], called_recursively=True, stop_at=']')
+                    i = -1
+                    out += evaled
+                elif c == '(' and not called_func and functions:
                     out += c
-                    closing = self.find_close_paren(remaining[i+1:])
-                    print(f"FUNC: Closing is {closing}")
-                    if closing is not None:
-                        args = remaining[i+1:i+1+closing]
-                        print(f"FUNC: Detected ) at {i+1+closing}")
-                        print(f"THEORETICAL FUNC ARGS: {args}")
-                        if (match := self.re_func.fullmatch(out.clean)):
-                            gdict = match.groupdict()
-                            if gdict:
-                                print(f"FUNC: Signature match: {gdict}")
+                    if (match := self.re_func.fullmatch(out.clean)):
+                        gdict = match.groupdict()
+                        if gdict:
                             if (func := self.find_function(gdict["func"])):
-                                print(f"FUNC: Function located: {func}")
                                 # hooray we have a function!
-                                ready_fun = func(self, args)
+                                ready_fun = func(self, remaining[i+1:])
                                 ready_fun.execute()
                                 called_func = True
                                 # the function's output will replace everything that lead up to its calling.
-                                print(f"FUNC: Returned: {ready_fun.output.clean}")
                                 out = ready_fun.output
-                                remaining = remaining[i+closing+2:]
+                                remaining = ready_fun.remaining
                                 i = -1
-                                print(f"FUNC: Remaining to eval: {remaining}")
                             else:
                                 if called_recursively:
-                                    print("FUNC: Called Recursively, func not found!")
                                     # if called recursively, a failed function match should error.
                                     out = AnsiString(f"#-1 FUNCTION ({gdict['func'].upper()}) NOT FOUND")
-                                    remaining = remaining[i + closing + 2:]
-                                    i = -1
-                                    print(f"FUNC: Remaining to eval: {remaining}")
-                                else:
-                                    print(f"FUNC: Not called recursively, no error")
-                                    print(f"FUNC: NO function matched...")
-                                    # no function matched... don't eval...
                                 called_func = True
-                    else:
-                        # no closing paren... don't eval function...
-                        called_func = True
                 else:
                     out += c
 
@@ -221,7 +158,11 @@ class QueueEntry:
         if self.stack:
             self.frame = self.stack[-1]
 
-        return out
+        # If stopped was never set, then we ended because we reached EOL.
+        if stopped is None and remaining:
+            remaining = ''
+
+        return out, remaining, stopped
 
     def execute(self):
         if not (enactor := self.core.objects.get(self.enactor, None)):

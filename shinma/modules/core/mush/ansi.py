@@ -687,7 +687,7 @@ class AnsiString(str):
         # Return the raw string with ANSI markup, ready to be displayed.
         return output.encoded()
 
-    def __bool__(self):
+    def truthy(self):
         if not self.clean:
             return False
         if self.clean.startswith('#-'):
@@ -695,6 +695,9 @@ class AnsiString(str):
         if self.clean.strip() in ('0', '-0'):
             return False
         return True
+
+    def __bool__(self):
+        return bool(self.clean)
 
     def __add__(self, other):
         if isinstance(other, AnsiString):
