@@ -119,7 +119,7 @@ class BaseTypeClass(GameObject):
                 return cmd
         if (next_obj := self.get_next_cmd_object(obj_chain)):
             obj_chain[self.typeclass_name] = self
-            next_obj.find_cmd(text, obj_chain)
+            return next_obj.find_cmd(text, obj_chain)
 
     def get_width(self):
         return 78

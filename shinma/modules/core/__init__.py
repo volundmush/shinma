@@ -2,7 +2,7 @@ from collections import defaultdict
 from shinma.utils import import_from_module
 from . gamedb import Module as GameDBModule
 from . cmdqueue import QueueEntry, CmdQueue
-from . commands import connection as LoginCmds
+from . commands import connection as LoginCmds, account as AccountCmds
 from . utils.welcome import render_welcome_screen
 from . utils.selectscreen import render_select_screen
 
@@ -151,6 +151,7 @@ class Module(GameDBModule):
         cmdfamilies["connection"]["core_login"] = LoginCmds.LoginCommandMatcher("core_login")
         cmdfamilies["connection"]["core_select"] = LoginCmds.SelectCommandMatcher("core_select")
         cmdfamilies["connection"]["core_connection"] = LoginCmds.ConnectionCommandMatcher("core_connection")
+        cmdfamilies['account']['core_account'] = AccountCmds.AccountCommandMatcher("core_account")
 
     def load_cmdfamilies(self):
         cmdfamilies = defaultdict(dict)
@@ -207,7 +208,7 @@ class Module(GameDBModule):
 
     def net_client_command(self, event, *args, **kwargs):
         conn = kwargs["connection"]
-        entry = QueueEntry(enactor=conn.name, executor=conn.name, caller=conn.name, actions=[kwargs["text"]])
+        entry = QueueEntry(enactor=conn.name, executor=conn.name, caller=conn.name, actions=kwargs["text"], split=False)
         self.cmdqueue.push(entry)
 
     def net_client_gmcp(self, event, *args, **kwargs):

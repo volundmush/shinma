@@ -196,14 +196,20 @@ class FormatList:
     def relay(self, obj):
         c = self.__class__(self.source)
         c.relay_chain = list(self.relay_chain)
+        c.messages = list(self.messages)
         c.relay_chain.append(obj)
         return c
 
-    def render(self, obj):
+    def send(self, obj):
         """
         Render the messages in this FormatList for obj.
         """
-        return AnsiString('\n').join([m.render(self, obj) for m in self.messages])
+        text = AnsiString('\n').join([m.render(self, obj) for m in self.messages])
+        out = dict()
+        c = obj.connection
+        if text:
+            out['text'] = text.render(ansi=c.ansi, xterm256=c.xterm256, mxp=c.mxp)
+        c.msg(out)
 
     def add(self, fmt: BaseFormatter):
         self.messages.append(fmt)

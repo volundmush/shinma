@@ -19,16 +19,7 @@ class ConnectionTypeClass(BaseTypeClass):
 
     def receive_msg(self, message):
         if self.connection:
-            out = dict()
-
-            if text := message.render(self):
-                out['text'] = text.render(ansi=self.connection.ansi, xterm256=self.connection.xterm256,
-                                              mxp=self.connection.mxp)
-            if data := message.data(self):
-                out['data'] = data
-
-            if out:
-                self.connection.msg(out)
+            message.send(self)
 
     def receive_relayed_msg(self, message):
         self.receive_msg(message)

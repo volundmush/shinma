@@ -21,31 +21,31 @@ class BaseFunction:
         self.error = False
 
     def _err_too_many_args(self, num):
-        if self.min_args is not None:
+        if self.min_args is not None and self.min_args != self.max_args:
             self.output = AnsiString(
-                f"#-1 FUNCTION {self.name.upper()} EXPECTS BETWEEN {self.min_args} AND {self.max_args} ARGUMENTS BUT GOT {num}")
+                f"#-1 FUNCTION ({self.name.upper()}) EXPECTS BETWEEN {self.min_args} AND {self.max_args} ARGUMENTS BUT GOT {num}")
         else:
             self.output = AnsiString(
-                f"#-1 FUNCTION {self.name.upper()} EXPECTS AT MOST {self.max_args} ARGUMENTS BUT GOT {num}")
+                f"#-1 FUNCTION ({self.name.upper()}) EXPECTS AT MOST {self.max_args} ARGUMENTS BUT GOT {num}")
         self.error = True
 
     def _err_too_few_args(self, num):
-        if self.max_args is not None:
+        if self.max_args is not None and self.min_args != self.max_args:
             self.output = AnsiString(
-                f"#-1 FUNCTION {self.name.upper()} EXPECTS BETWEEN {self.min_args} AND {self.max_args} ARGUMENTS BUT GOT {num}")
+                f"#-1 FUNCTION ({self.name.upper()}) EXPECTS BETWEEN {self.min_args} AND {self.max_args} ARGUMENTS BUT GOT {num}")
         else:
             self.output = AnsiString(
-                f"#-1 FUNCTION {self.name.upper()} EXPECTS AT LEAST {self.min_args} ARGUMENTS BUT GOT {num}")
+                f"#-1 FUNCTION ({self.name.upper()}) EXPECTS AT LEAST {self.min_args} ARGUMENTS BUT GOT {num}")
         self.error = True
 
     def _err_uneven_args(self, num):
         self.output = AnsiString(
-            f"#-1 FUNCTION {self.name.upper()} EXPECTS EVEN NUMBER OF ARGUMENTS BUT GOT {num}")
+            f"#-1 FUNCTION ({self.name.upper()}) EXPECTS EVEN NUMBER OF ARGUMENTS BUT GOT {num}")
         self.error = True
 
     def _err_even_args(self, num):
         self.output = AnsiString(
-            f"#-1 FUNCTION {self.name.upper()} EXPECTS ODD NUMBER OF ARGUMENTS BUT GOT {num}")
+            f"#-1 FUNCTION ({self.name.upper()}) EXPECTS ODD NUMBER OF ARGUMENTS BUT GOT {num}")
         self.error = True
 
     def gather_arg(self, noeval=False):

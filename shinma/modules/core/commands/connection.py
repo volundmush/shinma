@@ -251,13 +251,15 @@ class PyCommand(Command):
             sys.stderr = old_stderr
 
         if ret is None:
+
             return
         elif isinstance(ret, tuple):
+
             # we must convert here to allow msg to pass it (a tuple is confused
             # with a outputfunc structure)
             ret = str(ret)
 
-        self.enactor.msg(text=ret)
+        self.enactor.msg(text=repr(ret))
 
 
 class LoginCommandMatcher(PythonCommandMatcher):

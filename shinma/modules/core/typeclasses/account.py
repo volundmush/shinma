@@ -10,6 +10,7 @@ class AccountTypeClass(BaseTypeClass):
     class_initial_data = {
         "tags": ["account"]
     }
+    command_families = ['account']
 
     def get_next_cmd_object(self, obj_chain):
         if (conn := obj_chain.get("connection")):
@@ -20,7 +21,7 @@ class AccountTypeClass(BaseTypeClass):
         # logged-in to it at the moment.
 
         # This shouldn't be used much, though...
-        return self.get_connections()
+        return set(self.get_connections())
 
     def at_login(self, connection):
         pass

@@ -1,8 +1,6 @@
 import asyncio
 import re
-from typing import List
 from collections import OrderedDict
-from .mush.parser import split_unescaped_text, identify_squares
 from .commands.base import CommandException
 from .mush.ansi import AnsiString
 
@@ -32,7 +30,7 @@ class StackFrame:
 class QueueEntry:
     re_func = re.compile(r"^(?P<bangs>!|!!|!\$|!!\$|!\^|!!\^)?(?P<func>\w+)(?P<open>\()")
 
-    def __init__(self, enactor: str, executor: str, caller: str, actions: List[str], spoof: str = None):
+    def __init__(self, enactor: str, executor: str, caller: str, actions: str, spoof: str = None, split=True):
         self.source = enactor
         self.enactor = enactor
         self.executor = executor
@@ -50,6 +48,7 @@ class QueueEntry:
         self.cmd = None
         self.vars = dict()
         self.core = None
+        self.split_actions = split
 
     def eval_sub(self, text: str):
         """
@@ -69,31 +68,34 @@ class QueueEntry:
 
     def evaluate(self, text: str, localize: bool = False, spoof: str = None, called_recursively: bool = False, stop_at=None,
                  recurse=True, substitute=True, functions=True, curly_literals=True, noeval=False):
+        if text is None:
+            text = ''
+        if isinstance(text, AnsiString):
+            text = text.clean
         if stop_at is None:
             stop_at = list()
         if isinstance(stop_at, str):
             stop_at = [stop_at]
         if not len(text):
-            return AnsiString("")
+            return AnsiString(""), '', None
         if noeval:
-            recurse=False
-            substitute=False
-            functions=False
-            curly_literals=False
+            recurse = False
+            substitute = False
+            functions = False
+            curly_literals = True
         # if cpu exceeded, cancel here.
         # if fil exceeded, cancel here.
         # if recursion limit reached, cancel here.
-
-        if self.frame:
-            new_frame = StackFrame(self, self.frame)
-            self.frame = new_frame
-            if localize:
-                new_frame.localize()
-            self.stack.append(new_frame)
-        else:
-            self.frame = StackFrame(self, None)
-            self.stack.append(self.frame)
-
+        if not noeval:
+            if self.frame:
+                new_frame = StackFrame(self, self.frame)
+                self.frame = new_frame
+                if localize:
+                    new_frame.localize()
+                self.stack.append(new_frame)
+            else:
+                self.frame = StackFrame(self, None)
+                self.stack.append(self.frame)
         out = AnsiString()
         remaining = text
         escaped = False
@@ -102,6 +104,7 @@ class QueueEntry:
         curl_escaped = False
 
         i = -1
+
         while i < len(remaining)-1:
             i += 1
             c = remaining[i]
@@ -113,9 +116,9 @@ class QueueEntry:
                 if c == '\\':
                     escaped = True
                 elif c == '{' and curly_literals and not curl_escaped:
-                    curl_escaped = True
-                elif c == '}' and curly_literals and curl_escaped:
-                    curl_escaped = False
+                    curl_escaped += 1
+                elif c == '}' and curly_literals and curl_escaped > 0:
+                    curl_escaped -= 1
                 elif stop_at and c in stop_at:
                     if curl_escaped:
                         out += c
@@ -154,9 +157,10 @@ class QueueEntry:
                     out += c
 
         # if we reach down here, then we are doing well and can pop a frame off.
-        self.stack.pop(-1)
-        if self.stack:
-            self.frame = self.stack[-1]
+        if not noeval:
+            self.stack.pop(-1)
+            if self.stack:
+                self.frame = self.stack[-1]
 
         # If stopped was never set, then we ended because we reached EOL.
         if stopped is None and remaining:
@@ -164,42 +168,44 @@ class QueueEntry:
 
         return out, remaining, stopped
 
+    def process_action(self, enactor, text):
+        try:
+            cmd = enactor.find_cmd(text)
+            if cmd:
+                cmd.core = self.core
+                self.cmd = cmd
+                cmd.entry = self
+                try:
+                    cmd.at_pre_execute()
+                    cmd.execute()
+                    cmd.at_post_execute()
+                except CommandException as e:
+                    cmd.msg(str(e))
+                except Exception as e:
+                    cmd.msg(text=f"EXCEPTION: {str(e)}")
+                self.cmd = None
+            else:
+                enactor.msg('Huh?  (Type "help" for help.)')
+        except Exception as e:
+            print(f"Something foofy happened: {e}")
+
+    def action_splitter(self, text, split=True):
+        if not split:
+            yield text
+        else:
+            remaining = text
+            while len(remaining):
+                result, remaining, stopped = self.evaluate(remaining, noeval=True, stop_at=[';'])
+                if result:
+                    yield result
+
     def execute(self):
         if not (enactor := self.core.objects.get(self.enactor, None)):
             return 0
-        actions = list(self.actions)
-        if not len(actions):
+        if not len(self.actions):
             return 0
-        s = actions.pop(0)
-
-        try:
-            while s is not None:
-                cmd = enactor.find_cmd(s)
-                if cmd:
-                    cmd.core = self.core
-                    self.cmd = cmd
-                    cmd.entry = self
-                    cmd.at_pre_execute()
-                    try:
-                        cmd.execute()
-                    except CommandException as e:
-                        cmd.msg(str(e))
-                    except Exception as e:
-                        cmd.msg(text=f"EXCEPTION: {str(e)}")
-                        print(f"SOMETHING FOOFY HAPPENED: {str(e)}")
-                    cmd.at_post_execute()
-                    self.cmd = None
-                else:
-                    enactor.msg('Huh?  (Type "help" for help.)')
-
-                # need to stick something in here to cover next/include/etc.
-
-                if len(actions):
-                    s = actions.pop(0)
-                else:
-                    break
-        except Exception as e:
-            print(f"WTF happened? {str(e)}")
+        for action in self.action_splitter(self.actions, self.split_actions):
+            self.process_action(enactor, action)
 
 
 class WaitAction:

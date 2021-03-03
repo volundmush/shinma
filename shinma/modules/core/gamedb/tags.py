@@ -16,3 +16,6 @@ class Tag:
             if results := {obj for obj in self.objects if obj.name.upper().startswith(upper)}:
                 return results, None
         return None, "Nothing found."
+
+    def all(self):
+        return set(self.objects)
