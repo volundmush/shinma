@@ -18,12 +18,12 @@ class VolDB(PennDB):
 
     def list_accounts(self):
         if not (account_parent := self.cobj('accounts')):
-            return None
+            return dict()
         return {o.id: o for o in account_parent.children}
 
     def list_groups(self):
         if not (group_parent := self.cobj('gop')):
-            return None
+            return dict()
         return {o.id: o for o in group_parent.children}
 
     def list_index(self, number: int):
@@ -40,6 +40,9 @@ class VolDB(PennDB):
 
     def list_things(self):
         return self.list_index(2)
+
+    def list_districts(self):
+        return {k: v for k, v in self.list_things().items() if v.get('D`DISTRICT', inherit=False)}
 
 
 class Importer:
@@ -60,36 +63,77 @@ class Importer:
         if not (obj := self.obj_map.get(dbobj.id, None)):
             obj = self.create_obj(dbobj, mode)
             for k, v in dbobj.attributes.items():
-                obj.attributes.set('mush', k, v.value.encoded)
+                obj.attributes.set('mush', k, v.value.encoded())
         return obj
 
-    def import_rooms(self):
-        data = self.db.list_rooms()
-        total = list()
-        for k, v in data.items():
-            obj = self.get_or_create_obj(v, 'room')
-            total.append(obj)
-            obj.add_tag('penn_room')
-        return total
+    def import_grid(self):
+        districts = dict()
+        dis_data = self.db.list_districts()
+        for k, v in dis_data.items():
+            obj = self.get_or_create_obj(v, 'district')
+            obj.add_tag('penn_district')
+            districts[k] = obj
+        for k, v in districts.items():
+            dbobj = dis_data[k]
+            if (parent := self.obj_map.get(dbobj.parent, None)):
+                parent.reverse.add('districts', v)
+                v.relations.set('parent_district', parent)
+                v.attributes.set('core', 'parent_district', parent.objid)
+            if (ic := dbobj.get('D`IC', inherit=False)) and ic.value.truthy():
+                v.attributes.set('core', 'ic', True)
 
-    def import_exits(self):
-        data = self.db.list_exits()
-        total = list()
-        for k, v in data.items():
-            if not (location := self.obj_map.get(v.location, None)):
+        room_data = self.db.list_rooms()
+        room_total = dict()
+        room_districts = dict()
+        nodist_room = dict()
+        for k, v in room_data.items():
+            obj = self.get_or_create_obj(v, 'room')
+            if (district := districts.get(v.parent, None)):
+                district.reverse.add('rooms', obj)
+                obj.relations.set('district', district)
+                obj.attributes.set('core', 'district', district.objid)
+                room_districts[k] = obj
+            else:
+                nodist_room[k] = obj
+            room_total[k] = v
+            obj.add_tag('penn_room')
+
+        exit_data = self.db.list_exits()
+        exit_total = dict()
+        exit_dist = dict()
+        exit_nodist = dict()
+        for k, v in exit_data.items():
+            if not (location := self.obj_map.get(v.exits, None)):
                 continue  # No reason to make an Exit for a room that doesn't exist, is there?
-            if not (destination := self.obj_map.get(v.destination, None)):
+            if not (destination := self.obj_map.get(v.location, None)):
                 continue  # No reason to make an Exit for a room that doesn't exist, is there?
             obj = self.get_or_create_obj(v, 'exit')
             obj.attributes.set('core', 'room', location.objid)
+            obj.relations.set('location', location)
             location.reverse.add('exits', obj)
+            if (dist := location.relations.get('district')):
+                dist.reverse.add('exits', obj)
+                obj.relations.set('district', dist)
+                obj.attributes.set('core', 'district', dist.objid)
+                exit_dist[k] = obj
+            else:
+                exit_nodist[k] = obj
 
             obj.attributes.set('core', 'destination', destination.objid)
+            obj.relations.set('destination', destination)
             destination.reverse.add('entrances', obj)
 
             obj.add_tag('penn_exit')
-            total.append(obj)
-        return total
+            exit_total[k] = obj
+        return {
+            'districts': districts.values(),
+            'room_total': room_total.values(),
+            'room_nodist': nodist_room.values(),
+            'room_dist': room_districts.values(),
+            'exit_total': exit_total.values(),
+            'exit_dist': exit_dist.values(),
+            'exit_nodist': exit_nodist.values()
+        }
 
     def import_accounts(self):
         data = self.db.list_accounts()

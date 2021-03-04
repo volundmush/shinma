@@ -48,6 +48,10 @@ class AttributeCategory:
             self.attributes[name] = attr
             return None
 
+    def delete(self, name):
+        if (attr := self.attributes.pop(name, None)):
+            return attr.get()
+
     def clear(self):
         self.attributes.clear()
 

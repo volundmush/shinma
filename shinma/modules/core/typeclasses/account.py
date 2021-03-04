@@ -7,6 +7,7 @@ from shinma.utils import lazy_property
 
 class AccountTypeClass(BaseTypeClass):
     typeclass_name = "CoreAccount"
+    typeclass_family = 'account'
     prefix = "account"
     class_initial_data = {
         "tags": ["account"]
@@ -15,7 +16,7 @@ class AccountTypeClass(BaseTypeClass):
 
     def get_next_cmd_object(self, obj_chain):
         if (conn := obj_chain.get("connection")):
-            return conn.get_playview()
+            return conn.relations.get('playview')
 
     def listeners(self):
         # the listeners of an Account should be all Connections which are
@@ -39,7 +40,7 @@ class AccountTypeClass(BaseTypeClass):
         pass_hash = self.attributes.get("core", "password_hash")
         if not pass_hash:
             return False
-        return CRYPT_CON.verify(text, pass_hash.value)
+        return CRYPT_CON.verify(text, pass_hash)
 
     @lazy_property
     def style(self):

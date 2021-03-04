@@ -1,12 +1,13 @@
 import random
 import string
-from typing import Any
+from typing import Any, Union
 from collections import defaultdict
 from shinma.utils import lazy_property
 from .. gamedb.objects import GameObject
 from .. gamedb.exception import GameObjectException
 from .. mush.ansi import AnsiString
-from ..utils.formatter import FormatList, Text
+from ..utils import formatter as fmt
+from ..mush.parser import Parser
 
 
 class ScriptHandler:
@@ -64,6 +65,7 @@ class ReverseHandler:
 
 class BaseTypeClass(GameObject):
     typeclass_name = None
+    typeclass_family = None
     prefix = "shinmaobject"
     class_initial_data = None
     command_families = set()
@@ -109,33 +111,93 @@ class BaseTypeClass(GameObject):
     def listeners(self):
         return []
 
+    def parser(self):
+        return Parser(self.core, self.objid, self.objid, self.objid)
+
     def msg(self, text, **kwargs):
-        flist = FormatList(self, **kwargs)
-        flist.add(Text(text))
+        flist = fmt.FormatList(self, **kwargs)
+        flist.add(fmt.Text(text))
         self.send(flist)
 
-    def send(self, message: FormatList):
+    def send(self, message: fmt.FormatList):
         self.receive_msg(message)
         for listener in self.listeners():
             if listener not in message.relay_chain:
-                listener.receive_relayed_msg(message.relay(self))
+                listener.send(message.relay(self))
 
-    def receive_msg(self, message: FormatList):
+    def receive_msg(self, message: fmt.FormatList):
         pass
 
-    def receive_relayed_msg(self, message: FormatList):
-        pass
+    def mush_get_attr(self, attr: str, inherit=True, ancestors=True, default=None):
+        if (attr := self.attributes.get('mush', attr.upper())):
+            return AnsiString(attr)
+
+    def mush_set_attr(self, attr: str, value: Union[str, AnsiString]):
+        if isinstance(value, AnsiString):
+            self.attributes.set('mush', attr.upper(), value.encoded())
+        else:
+            self.attributes.set('mush', attr.upper(), value)
+
+    def mush_has_attr(self, attr: str, inherit=True, ancestors=True):
+        if (attr := self.mush_get_attr(attr, inherit, ancestors)):
+            return True
+        else:
+            return False
+
+    def mush_has_attrval(self, attr: str, inherit=True, ancestors=True):
+        if (attr := self.mush_get_attr(attr, inherit, ancestors)):
+            return attr.truthy()
+        return False
 
     def location(self):
         if (loc := self.reverse.get("room_contents", None)):
             return list(loc)[0]
         return None
 
-    def render_appearance_external(self, viewer):
-        pass
+    def render_appearance(self, viewer, internal=False):
+        parser = viewer.parser()
+        out = fmt.FormatList(viewer)
+        if (nameformat := self.mush_get_attr('NAMEFORMAT')):
+            result, remaining, stopped = parser.evaluate(nameformat, executor=self, number_args={0: self.objid, 1: self.name})
+            out.add(fmt.Text(result))
+        else:
+            out.add(fmt.Text(AnsiString.from_args('hw', self.name) + f"({self.objid})"))
+        if internal and (idesc := self.mush_get_attr('IDESCRIBE')):
+            idesc_eval, remaining, stopped = parser.evaluate(idesc, executor=self)
+            if (idescformat := self.mush_get_attr('IDESCFORMAT')):
+                result, remaining, stopped = parser.evaluate(idescformat, executor=self, number_args={0: idesc_eval})
+                out.add(fmt.Text(result))
+            else:
+                out.add(fmt.Text(idesc_eval))
+        elif (desc := self.mush_get_attr('DESCRIBE')):
+            desc_eval, remaining, stopped = parser.evaluate(desc, executor=self)
+            if (descformat := self.mush_get_attr('DESCFORMAT')):
+                result, remaining, stopped = parser.evaluate(descformat, executor=self, number_args={0: desc_eval})
+                out.add(fmt.Text(result))
+            else:
+                out.add(fmt.Text(desc_eval))
+        if (contents := self.reverse.all('contents')):
+            if (conformat := self.mush_get_attr('CONFORMAT')):
+                contents_objids = ' '.join([con.objid for con in contents])
+                result, remaining, stopped = parser.evaluate(conformat, executor=self, number_args={0: contents_objids})
+                out.add(fmt.Text(result))
+            else:
+                con = [AnsiString("Contents:")]
+                for obj in contents:
+                    con.append(f" * " + AnsiString.send_menu(AnsiString.from_args('hw', obj.name), [(f'look {obj.name}', 'Look')]) + f" ({obj.objid})")
+                out.add(fmt.Text(AnsiString('\n').join(con)))
+        if (exits := self.reverse.all('exits')):
 
-    def render_appearance_internal(self, viewer):
-        pass
+            if (exitformat := self.mush_get_attr('EXITFORMAT')):
+                contents_objids = ' '.join([con.objid for con in exits])
+                result, remaining, stopped = parser.evaluate(exitformat, executor=self, number_args={0: contents_objids})
+                out.add(fmt.Text(result))
+            else:
+                con = [AnsiString("Obvious Exits:")]
+                for obj in exits:
+                    con.append(f" * " + AnsiString.send_menu(AnsiString.from_args('hw', obj.name), [(f'go {obj.name}', 'Move here')]) + f" leads to {obj.relations.get('destination').name}")
+                out.add(fmt.Text(AnsiString('\n').join(con)))
+        viewer.send(out)
 
     def get_cmd_matchers(self):
         results = set()
@@ -154,7 +216,7 @@ class BaseTypeClass(GameObject):
             if (cmd := g.match(self, text, obj_chain)):
                 return cmd
         if (next_obj := self.get_next_cmd_object(obj_chain)):
-            obj_chain[self.typeclass_name] = self
+            obj_chain[self.typeclass_family] = self
             return next_obj.find_cmd(text, obj_chain)
 
     def get_width(self):

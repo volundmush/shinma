@@ -11,8 +11,9 @@ class BaseFunction:
     odd_args = False
     eval_args = True
 
-    def __init__(self, entry, remaining):
+    def __init__(self, entry, called_as, remaining):
         self.entry = entry
+        self.called_as = called_as
         self.output = ''
         self.remaining = remaining
         self.args = list()
@@ -49,7 +50,7 @@ class BaseFunction:
         self.error = True
 
     def gather_arg(self, noeval=False):
-        data, self.remaining, stopped = self.entry.evaluate(self.remaining, stop_at=[')', ','])
+        data, self.remaining, stopped = self.entry.evaluate(self.remaining, stop_at=[')', ','], noeval=noeval)
         return data, stopped
 
     def gather_all_args(self, noeval=False):
@@ -62,10 +63,10 @@ class BaseFunction:
         self.gather_all_args()
         self.args_count = len(self.args_eval)
         c = self.args_count
-        if c > self.max_args:
+        if self.max_args is not None and c > self.max_args:
             self._err_too_many_args(c)
             return
-        if c < self.min_args:
+        if self.min_args is not None and c < self.min_args:
             self._err_too_few_args(c)
             return
         if self.even_args and c % 2 == 1:
@@ -78,4 +79,11 @@ class BaseFunction:
 
     def do_execute(self):
         self.output = f"#-1 FUNCTION {self.name.upper()} IS NOT IMPLEMENTED"
+        self.error = True
+
+
+class NotFound(BaseFunction):
+    def execute(self):
+        self.gather_all_args(noeval=True)
+        self.output = f"#-1 FUNCTION ({self.called_as.upper()}) NOT FOUND"
         self.error = True

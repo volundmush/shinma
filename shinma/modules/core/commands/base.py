@@ -48,6 +48,7 @@ class Command:
         self.cmd_group = group
         self.obj_chain = obj_chain
         self.entry = None
+        self.parser = None
 
     def execute(self):
         """
@@ -74,12 +75,12 @@ class MushCommand(Command):
         stopped = split_at
         true_stop = [split_at, stop_at]
         while stopped == split_at:
-            result, self.remaining, stopped = self.entry.evaluate(self.remaining, stop_at=true_stop, noeval=noeval)
+            result, self.remaining, stopped = self.parser.evaluate(self.remaining, stop_at=true_stop, noeval=noeval)
             out.append(result)
         return out
 
-    def gather_arg(self, noeval=False):
-        result, self.remaining, stopped = self.entry.evaluate(self.remaining, stop_at=['='], noeval=noeval)
+    def gather_arg(self, noeval=False, stop_at=None):
+        result, self.remaining, stopped = self.parser.evaluate(self.remaining, stop_at=stop_at, noeval=noeval)
         return result
 
     @classmethod

@@ -178,9 +178,9 @@ class DbObject:
         self.id = dbref
         self.name = ""
         self.location = -1
-        self.exits = set()
+        self.exits = -1
         self.entrances = set()
-        self.destination = -1
+
         self.parent = -1
         self.owner = -1
         self.zone = -1
@@ -201,7 +201,7 @@ class DbObject:
         self.owner_obj = None
         self.zone_obj = None
         self.location_obj = None
-        self.destination_obj = None
+        self.exits_obj = None
         self.owns = set()
         self.zoned = set()
 
@@ -274,7 +274,7 @@ class DbObject:
         elif line.name == "modified":
             self.modified = line.value
         elif line.name == "exits":
-            self.destination = line.value
+            self.exits = line.value
 
     def get(self, attr, default=None, inherit=True):
         uattr = attr.upper()
@@ -335,18 +335,13 @@ class PennDB:
     def setup(self):
         for k, v in self.objects.items():
             self.type_index[v.type].add(v)
-            if v.type == 4:
-                if (found := self.objects.get(v.location, None)):
-                    found.exits.add(v)
-                    v.location_obj = found
-                if (found := self.objects.get(v.destination, None)):
-                    found.entrances.add(v)
-                    v.destination_obj = found
 
-            elif v.type in (2, 8):
-                if (found := self.objects.get(v.location, None)):
-                    found.contents.add(v)
-                    v.location_obj = found
+            if (found := self.objects.get(v.location, None)):
+                found.contents.add(v)
+                v.location_obj = found
+
+            if (found := self.objects.get(v.exits, None)):
+                v.exits_obj = found
 
             if (parent := self.objects.get(v.parent, None)):
                 v.parent_obj = parent

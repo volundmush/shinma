@@ -96,18 +96,18 @@ class PennConnect(_LoginCommand):
         if not check_password(old_hash, password):
             raise CommandException("Sorry, that was an incorrect username or password. (hash failed)")
         if not (acc := character.relations.get('account')):
-            raise CommandException("Character found! However this character has no account.\nTo continue, create an account and bind the character after logging in.")
+            raise CommandException("Character found! However this character has no account. To continue, create an account and bind the character after logging in.")
         self.enactor.login(acc)
         self.core.selectscreen(self.enactor)
-        self.msg(text=f"Your Account password has been set to the password you entered just now. Next time, you can login using the\nnormal connect command. pconnect will not work on your currently bound characters again.")
+        self.msg(text=f"Your Account password has been set to the password you entered just now. Next time, you can login using the normal connect command. pconnect will not work on your currently bound characters again.")
         acc.set_password(password)
         for char in acc.reverse.all('characters'):
             char.attributes.delete('core', 'penn_hash')
 
 
 class CharCreateCommand(Command):
-    name = "charcreate"
-    re_match = re.compile(r"^(?P<cmd>charcreate)(?: +(?P<args>.+)?)?", flags=re.IGNORECASE)
+    name = "@charcreate"
+    re_match = re.compile(r"^(?P<cmd>@charcreate)(?: +(?P<args>.+)?)?", flags=re.IGNORECASE)
 
     def execute(self):
         mdict = self.match_obj.groupdict()
@@ -117,18 +117,21 @@ class CharCreateCommand(Command):
         if error:
             raise CommandException(error)
         acc = self.enactor.relations.get('account')
-        acc.relations.set("account_characters", char, "present", True)
+        acc.reverse.add("characters", char)
+        char.attributes.set('core', 'account', acc)
+        char.relations.set('account', acc)
         self.msg(text=AnsiString(f"Character '{char.name}' created! Use ") + AnsiString.from_args("hw", f"charselect {char.name}") + " to join the game!")
 
 
 class CharSelectCommand(Command):
-    name = "charselect"
-    re_match = re.compile(r"^(?P<cmd>charselect)(?: +(?P<args>.+)?)?", flags=re.IGNORECASE)
+    name = "@charselect"
+    re_match = re.compile(r"^(?P<cmd>@charselect)(?: +(?P<args>.+)?)?", flags=re.IGNORECASE)
 
     def execute(self):
         mdict = self.match_obj.groupdict()
         acc = self.enactor.relations.get('account')
-        chars = acc.relations.all('account_characters')
+        if not (chars := acc.reverse.all('characters')):
+            raise CommandException("No characters to join the game as!")
         if not (args := mdict.get("args", None)):
             names = ', '.join([obj.name for obj in chars])
             self.msg(text=f"You have the following characters: {names}")
@@ -136,16 +139,17 @@ class CharSelectCommand(Command):
         if not (found := partial_match(args, chars, key=lambda x: x.name)):
             self.msg(text=f"Sorry, no character found named: {args}")
             return
-        pview, errors = found.get_or_create_playview()
-        if errors:
-            raise CommandException(errors)
-        self.enactor.join(pview)
-
-        if (pview := found.get_playview()):
-            self.enactor.join(pview)
-        else:
-            pview, errors = self.core.mapped_typeclasses["playview"].create(objid=f"playview_{found.objid}")
-            pview.set_character(found)
+        created = False
+        if not (pview := found.relations.get('playview')):
+            pview, errors = self.core.mapped_typeclasses['playview'].create(objid=f"playview_{found.objid}")
+            if errors:
+                raise CommandException(errors)
+            created = True
+            found.relations.set('playview', pview)
+            found.attributes.set('core', 'playview', pview.objid)
+            pview.relations.set('character', found)
+            pview.attributes.set('core', 'character', found.objid)
+        self.enactor.join(pview, created)
 
 
 class SelectScreenCommand(Command):
@@ -196,10 +200,9 @@ class ImportCommand(Command):
     def op_grid(self):
         if 'grid' in self.enactor.penn.complete:
             raise CommandException("Those were already imported!")
-        out = self.enactor.penn.import_rooms()
-        self.msg(f"Imported {len(out)} Rooms!")
-        out = self.enactor.penn.import_exits()
-        self.msg(f"Imported {len(out)} Exits!")
+        out = self.enactor.penn.import_grid()
+        for k, v in out.items():
+            self.msg(f"Imported: {k} - {len(v)}")
         self.enactor.penn.complete.add('grid')
 
     def op_accounts(self):
@@ -224,9 +227,18 @@ class PyCommand(Command):
 
         available_vars = {
             'self': self.enactor,
+            'connection': self.enactor,
             "shinma": self.enactor.core.engine,
             "core": self.enactor.core
         }
+        if (acc := self.enactor.relations.get('account')):
+            available_vars['account'] = acc
+            if (pv := self.enactor.relations.get('playview')):
+                available_vars['playview'] = pv
+                if (pup := pv.relations.get('puppet')):
+                    available_vars['puppet'] = pup
+                if (char := pv.relations.get('character')):
+                    available_vars['character'] = char
 
         self.msg(text=f">>> {args}")
 
@@ -302,7 +314,7 @@ class LoginCommandMatcher(PythonCommandMatcher):
 class SelectCommandMatcher(PythonCommandMatcher):
 
     def access(self, enactor):
-        return enactor.relations.get('account') is not None
+        return enactor.relations.get('account') and not enactor.relations.get('playview')
 
     def at_cmdmatcher_creation(self):
         self.add(CharSelectCommand)

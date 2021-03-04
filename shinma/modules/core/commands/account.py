@@ -33,11 +33,13 @@ class ListCommand(MushCommand):
         mode = self.gather_arg()
         if not mode:
             raise CommandException("What mode are we listing in?")
+
         options = {
-            'accounts': self.list_accounts
+            'accounts': self.list_accounts,
+            'districts': self.list_districts
         }
 
-        if not (choice := options.get(partial_match(mode, options.keys()), None)):
+        if not (choice := options.get(partial_match(mode.clean, options.keys()), None)):
             raise CommandException(f"That is not a valid choice. Choices are: {options.keys()}")
         choice()
 
@@ -50,6 +52,26 @@ class ListCommand(MushCommand):
         for acc in accounts:
             table.add_row(acc.objid, acc.name, ', '.join(x.name for x in acc.reverse.all('characters')))
         out.add(table)
+        out.add(fmt.Footer())
+        self.enactor.send(out)
+
+    def list_districts(self):
+        def line(dist, o, depth=0):
+            l = fmt.Text(' ' * depth + f"?? {dist.objid:<15} {dist.name:<30} {len(dist.reverse.all('rooms'))}")
+            o.add(l)
+            for d in dist.reverse.all('districts'):
+                line(d, o, depth=depth+1)
+
+        if not (districts := self.enactor.core.get_tag('district').all()):
+            raise CommandException("There are no districts to list.")
+        # filter down to just root districts.
+        if not (districts := [d for d in districts if not d.relations.get('parent_district')]):
+            # not sure HOW this could ever happen, but just in case...
+            raise CommandException("There are no districts to list. This probably shouldn't happen - contact devs")
+        out = fmt.FormatList(self.enactor)
+        out.add(fmt.Header("Districts"))
+        for d in districts:
+            line(d, out, depth=0)
         out.add(fmt.Footer())
         self.enactor.send(out)
 

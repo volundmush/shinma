@@ -2,7 +2,7 @@ from collections import defaultdict
 from shinma.utils import import_from_module
 from . gamedb import Module as GameDBModule
 from . cmdqueue import QueueEntry, CmdQueue
-from . commands import connection as LoginCmds, account as AccountCmds
+from . commands import connection as LoginCmds, account as AccountCmds, mobile as MobileCmds
 from . utils.welcome import render_welcome_screen
 from . utils.selectscreen import render_select_screen
 
@@ -50,6 +50,8 @@ class Module(GameDBModule):
         typeclasses["CoreExit"] = ExitTypeClass
         from . typeclasses.mobile import MobileTypeClass
         typeclasses['CoreMobile'] = MobileTypeClass
+        from .typeclasses.district import DistrictTypeClass
+        typeclasses["CoreDistrict"] = DistrictTypeClass
 
     def init_settings(self, settings):
         settings.CORE_TYPECLASS_MAP = {
@@ -58,7 +60,8 @@ class Module(GameDBModule):
             "playview": "CorePlayView",
             "room": "CoreRoom",
             "exit": "CoreExit",
-            "mobile": "CoreMobile"
+            "mobile": "CoreMobile",
+            "district": "CoreDistrict"
         }
         settings.CORE_WELCOMESCREEN = render_welcome_screen
         settings.CORE_SELECTSCREEN = render_select_screen
@@ -90,6 +93,7 @@ class Module(GameDBModule):
         cmdfamilies["connection"]["core_select"] = LoginCmds.SelectCommandMatcher("core_select")
         cmdfamilies["connection"]["core_connection"] = LoginCmds.ConnectionCommandMatcher("core_connection")
         cmdfamilies['account']['core_account'] = AccountCmds.AccountCommandMatcher("core_account")
+        cmdfamilies['mobile']['core_mobile'] = MobileCmds.MobileCommandMatcher('core_mobile')
 
     def load_cmdfamilies(self):
         cmdfamilies = defaultdict(dict)
