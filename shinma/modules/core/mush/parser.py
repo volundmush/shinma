@@ -2,6 +2,7 @@ from .functions.base import NotFound as NotFoundFunction
 from .ansi import AnsiString
 import re
 
+
 class StackFrame:
     def __init__(self, entry, parent):
         self.parent = parent
@@ -26,6 +27,7 @@ class StackFrame:
 
 
 class Parser:
+    re_func = re.compile(r"^(?P<bangs>!|!!|!\$|!!\$|!\^|!!\^)?(?P<func>\w+)(?P<open>\()")
     re_number_args = re.compile(r"^%(?P<number>\d+)")
     re_q_old = re.compile(r"(?i)^%q(?P<q>[A-Z0-9])")
     re_q_named = re.compile(r"(?i)^%q<(?P<q>\w+)>")
@@ -54,6 +56,11 @@ class Parser:
             return '\n', text[2:]
         elif text.startswith('%T') or text.startswith('%t'):
             return '\t', text[2:]
+        elif text.startswith('%l') or text.startswith('%L'):
+            if (loc := self.enactor.relations.get('location')):
+                return loc.objid, text[2:]
+            else:
+                return '', text[2:]
         elif (m := self.re_number_args.fullmatch(text)):
             mdict = m.groupdict()
             num = int(mdict['number'])

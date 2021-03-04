@@ -21,15 +21,15 @@ class LookCommand(MushCommand):
     def look_at(self, target):
         if (loc := self.enactor.relations.get('location')):
             if loc == target:
-                loc.render_appearance(self, self.enactor, internal=True)
+                loc.render_appearance(self.enactor, internal=True)
             else:
-                loc.render_appearance(self, self.enactor)
+                loc.render_appearance(self.enactor)
         else:
-            loc.render_appearance(self, self.enactor)
+            loc.render_appearance(self.enactor)
 
     def look_here(self):
         if (loc := self.enactor.relations.get('location')):
-            loc.render_appearance(self, self.enactor, internal=True)
+            loc.render_appearance(self.enactor, internal=True)
         else:
             raise CommandException("You are nowhere. There's not much to see.")
 

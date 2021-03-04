@@ -1,5 +1,4 @@
 import asyncio
-import re
 import sys
 from collections import OrderedDict
 from .commands.base import CommandException
@@ -7,7 +6,6 @@ import traceback
 
 
 class QueueEntry:
-    re_func = re.compile(r"^(?P<bangs>!|!!|!\$|!!\$|!\^|!!\^)?(?P<func>\w+)(?P<open>\()")
 
     def __init__(self, enactor: str, executor: str, caller: str, actions: str, spoof: str = None, split=True):
         self.source = enactor
