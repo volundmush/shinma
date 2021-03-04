@@ -126,6 +126,12 @@ _DEFAULT_WIDTH = 78
 
 
 def d_len(obj):
+    if isinstance(obj, AnsiString):
+        return len(obj)
+    if isinstance(obj, str):
+        return len(obj)
+    if obj is None:
+        return 0
     return len(obj)
 
 
@@ -144,7 +150,7 @@ def _to_ansi(obj):
     if is_iter(obj):
         return [_to_ansi(o) for o in obj]
 
-    return AnsiString(obj)
+    return AnsiString(str(obj))
 
 
 _whitespace = "\t\n\x0b\x0c\r "
@@ -452,7 +458,8 @@ class EvCell(object):
         self.valign = kwargs.get("valign", "c")
 
         self.data = self._split_lines(_to_ansi(data))
-        self.raw_width = max(d_len(line) for line in self.data)
+
+        self.raw_width = max(d_len(line) for line in self.data if line) if self.data else 0
         self.raw_height = len(self.data)
 
         # this is extra trimming required for cels in the middle of a table only
@@ -711,14 +718,16 @@ class EvCell(object):
             + max(0, self.border_right - 1)
         )
 
-        vfill = self.corner_top_left_char if left else ""
-        vfill += cwidth * self.border_top_char
-        vfill += self.corner_top_right_char if right else ""
+        vfill = AnsiString(self.corner_top_left_char) if left else ""
+        v = self.border_top_char * cwidth
+        vfill += v
+        vfill += AnsiString(self.corner_top_right_char) if right else ""
         top = [vfill for _ in range(self.border_top)]
 
-        vfill = self.corner_bottom_left_char if left else ""
-        vfill += cwidth * self.border_bottom_char
-        vfill += self.corner_bottom_right_char if right else ""
+        vfill = AnsiString(self.corner_bottom_left_char) if left else ""
+        v = self.border_bottom_char * cwidth
+        vfill += v
+        vfill += AnsiString(self.corner_bottom_right_char) if right else ""
         bottom = [vfill for _ in range(self.border_bottom)]
 
         return top + [left + line + right for line in data] + bottom
@@ -753,7 +762,7 @@ class EvCell(object):
             natural_height (int): Height of cell.
 
         """
-        return len(self.formatted)  # if self.formatted else 0
+        return len(self.formatted) if self.formatted else 0
 
     def get_width(self):
         """
@@ -763,7 +772,7 @@ class EvCell(object):
             natural_width (int): Width of cell.
 
         """
-        return d_len(self.formatted[0])  # if self.formatted else 0
+        return d_len(self.formatted[0]) if self.formatted else 0
 
     def replace_data(self, data, **kwargs):
         """
@@ -842,6 +851,7 @@ class EvCell(object):
         self.border_left_char = kwargs.pop(
             "border_left_char", borderchar if borderchar else self.border_left_char
         )
+
         self.border_right_char = kwargs.pop(
             "border_right_char", borderchar if borderchar else self.border_right_char
         )
@@ -1737,7 +1747,7 @@ class EvTable(object):
     def __str__(self):
         """print table (this also balances it)"""
         # h = "12345678901234567890123456789012345678901234567890123456789012345678901234567890"
-        return str(str(self.to_ansistring()))
+        return str(self.to_ansistring())
 
     def to_ansistring(self):
         return AnsiString("\n").join([line for line in self._generate_lines()])

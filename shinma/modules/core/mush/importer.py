@@ -14,7 +14,6 @@ class VolDB(PennDB):
             self.ccp = code_object
         if not (attr := self.ccp.get(f"COBJ`{abbr.upper()}")):
             return None
-        print(f"CCP found: {attr} - {attr.value.clean}")
         return self.find_obj(attr.value.clean)
 
     def list_accounts(self):
@@ -60,6 +59,8 @@ class Importer:
     def get_or_create_obj(self, dbobj, mode):
         if not (obj := self.obj_map.get(dbobj.id, None)):
             obj = self.create_obj(dbobj, mode)
+            for k, v in dbobj.attributes.items():
+                obj.attributes.set('mush', k, v.value.encoded)
         return obj
 
     def import_rooms(self):
@@ -68,10 +69,11 @@ class Importer:
         for k, v in data.items():
             obj = self.get_or_create_obj(v, 'room')
             total.append(obj)
+            obj.add_tag('penn_room')
         return total
 
     def import_exits(self):
-        data = self.db.list_rooms()
+        data = self.db.list_exits()
         total = list()
         for k, v in data.items():
             if not (location := self.obj_map.get(v.location, None)):
@@ -79,8 +81,13 @@ class Importer:
             if not (destination := self.obj_map.get(v.destination, None)):
                 continue  # No reason to make an Exit for a room that doesn't exist, is there?
             obj = self.get_or_create_obj(v, 'exit')
-            location.relations.set("exits_from", obj, "present", True)
-            destination.relations.set("exits_to", obj, "present", True)
+            obj.attributes.set('core', 'room', location.objid)
+            location.reverse.add('exits', obj)
+
+            obj.attributes.set('core', 'destination', destination.objid)
+            destination.reverse.add('entrances', obj)
+
+            obj.add_tag('penn_exit')
             total.append(obj)
         return total
 
@@ -89,6 +96,7 @@ class Importer:
         total = list()
         for k, v in data.items():
             obj = self.get_or_create_obj(v, 'account')
+            obj.add_tag('penn_account')
             total.append(obj)
         return total
 
@@ -100,12 +108,29 @@ class Importer:
                 # Filtering out guests.
                 continue
             obj = self.get_or_create_obj(v, 'mobile')
-            obj.attributes.set("_core", "penn_hash", v.get('XYXXY').value.clean)
+            obj.attributes.set("core", "penn_hash", v.get('XYXXY').value.clean)
             if (account := self.obj_map.get(v.parent, None)):
                 # Hooray, we have an account!
-                account.relations.set("account_characters", obj, "present", True)
+                account.reverse.add('characters', obj)
+                obj.attributes.set('core', 'account', account.objid)
+                obj.relations.set('account', account)
+
+                if 'WIZARD' in v.flags:
+                    if not account.attributes.has('core', 'supervisor_level'):
+                        account.attributes.set('core', 'supervisor_level', 10)
+                elif 'ROYALTY' in v.flags:
+                    if not account.attributes.has('core', 'supervisor_level'):
+                        account.attributes.set('core', 'supervisor_level', 8)
+                elif (va := obj.attributes.get('mush', 'V`ADMIN')):
+                    if va == '1':
+                        if not account.attributes.has('core', 'supervisor_level'):
+                            account.attributes.set('core', 'supervisor_level', 6)
+
                 # if we don't get an account, then this character can still be accessed using their password, but...
             if (location := self.obj_map.get(v.location, None)):
-                location.relations.set("room_contents", obj, "present", True)
+                obj.attributes.set('core', 'location', location.objid)
+                obj.relations.set('location', location)
+                location.reverse.add('contents', obj)
+            obj.add_tag('penn_character')
             total.append(obj)
         return total

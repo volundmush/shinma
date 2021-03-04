@@ -1,8 +1,10 @@
 import asyncio
 import re
+import sys
 from collections import OrderedDict
 from .commands.base import CommandException
 from .mush.ansi import AnsiString
+import traceback
 
 
 class StackFrame:
@@ -183,11 +185,13 @@ class QueueEntry:
                     cmd.msg(str(e))
                 except Exception as e:
                     cmd.msg(text=f"EXCEPTION: {str(e)}")
+                    traceback.print_exc(file=sys.stdout)
                 self.cmd = None
             else:
                 enactor.msg('Huh?  (Type "help" for help.)')
         except Exception as e:
             print(f"Something foofy happened: {e}")
+            traceback.print_exc(file=sys.stdout)
 
     def action_splitter(self, text, split=True):
         if not split:

@@ -602,9 +602,9 @@ class Markup:
             self.ansi.apply_ansi_rule(rule)
 
     def setup_html(self):
-        self.html_start = f"<{self.start_text}>"
+        self.html_start = AnsiMarkup.ANSI_START + '4z' + f"<{self.start_text}>"
         tag, extra = self.start_text.split(' ', 1)
-        self.html_end = f"</{tag}>"
+        self.html_end = AnsiMarkup.ANSI_START + '4z' + f"</{tag}>"
 
     def enter_html(self):
         return self.html_start
@@ -625,8 +625,14 @@ class AnsiString(str):
         self.clean = ""
         self.markup = list()
         self.markup_idx_map = list()
-        if src:
-            self.decode(src)
+        if isinstance(src, AnsiString):
+            self.source = src.source
+            self.clean = src.clean
+            self.markup = list(src.markup)
+            self.markup_idx_map = list(src.markup_idx_map)
+        else:
+            if src:
+                self.decode(src)
 
     def __len__(self):
         return len(self.clean)
@@ -699,9 +705,38 @@ class AnsiString(str):
     def __bool__(self):
         return bool(self.clean)
 
+    def __mul__(self, other):
+        if not isinstance(other, int):
+            return self
+        if other == 0:
+            return AnsiString('')
+        n = self.clone()
+        if other == 1:
+            return n
+        if other > 1:
+            for _ in range(other-1):
+                n.markup_idx_map.extend(self.markup_idx_map)
+            n.regen_clean()
+        return n
+
+    def __rmul__(self, other):
+        if not isinstance(other, int):
+            return self
+        if other == 0:
+            return AnsiString('')
+        n = self.clone()
+        if other == 1:
+            return n
+        if other > 1:
+            for _ in range(other - 1):
+                n.markup_idx_map.extend(self.markup_idx_map)
+            n.regen_clean()
+        return n
+
     def __add__(self, other):
         if isinstance(other, AnsiString):
             n = self.clone()
+            n.markup_idx_map.append((None, ''))
             n.markup_idx_map.extend(other.markup_idx_map)
             n.regen_clean()
             return n
@@ -717,6 +752,7 @@ class AnsiString(str):
 
     def __iadd__(self, other):
         if isinstance(other, AnsiString):
+            self.markup_idx_map.append((None, ''))
             self.markup_idx_map.extend(other.markup_idx_map)
             self.regen_clean()
             return self
@@ -999,6 +1035,19 @@ class AnsiString(str):
         except AnsiException as e:
             return cls(f"#-1 INVALID ANSI DEFINITION: {e}")
 
+    @classmethod
+    def from_html(cls, tag: str, text: str, **kwargs):
+        attrs = ' '.join([f'{k}="{v}"' for k, v in kwargs.items()])
+        return cls(f"{AnsiMarkup.TAG_START}p{tag} {attrs}{AnsiMarkup.TAG_END}{text}{AnsiMarkup.TAG_START}p/{tag} {attrs}{AnsiMarkup.TAG_END}")
+
+    @classmethod
+    def send_menu(cls, text: str, commands=None):
+        if commands is None:
+            commands = []
+        hints = '|'.join(a[1] for a in commands)
+        cmds = '|'.join(a[0] for a in commands)
+        return cls.from_html(tag='SEND', text=text, hint=hints, href=cmds)
+
     def plain(self):
         return self.clean
 
@@ -1032,7 +1081,7 @@ class AnsiString(str):
         cur = None
         out = ""
         cur_ansi = None
-        for m, c in self.markup_idx_map:
+        for m, c in tuples:
             if m:
                 if cur:
                     # We are inside of a markup!

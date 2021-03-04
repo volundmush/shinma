@@ -7,6 +7,7 @@ from ..mush.ansi import AnsiString
 from shinma.utils import partial_match
 from ..typeclasses.account import CRYPT_CON
 from ..mush.importer import Importer
+from ..mush.flatfile import check_password
 
 
 class _LoginCommand(Command):
@@ -78,6 +79,32 @@ class HelpCommand(_LoginCommand):
         self.msg(text="Pretend I'm showing some help here.")
 
 
+class PennConnect(_LoginCommand):
+    name = 'pconnect'
+    re_match = re.compile(r"^(?P<cmd>pconnect)(?: +(?P<args>.+))?", flags=re.IGNORECASE)
+    usage = "Usage: " + AnsiString.from_args("hw", "pconnect <username> <password>") + " or " + AnsiString.from_args("hw", 'pconnect "<user name>" password')
+
+    def execute(self):
+        name, password = self.parse_login(self.usage)
+        character, error = self.core.search_tag("penn_character", name, exact=True)
+        if error:
+            raise CommandException("Sorry, that was an incorrect username or password. (character search failed)")
+        if not character:
+            raise CommandException("Sorry, that was an incorrect username or password. (character not found)")
+        if not (old_hash := character.attributes.get('core', 'penn_hash')):
+            raise CommandException("Sorry, that was an incorrect username or password. (character has no old_hash)")
+        if not check_password(old_hash, password):
+            raise CommandException("Sorry, that was an incorrect username or password. (hash failed)")
+        if not (acc := character.relations.get('account')):
+            raise CommandException("Character found! However this character has no account.\nTo continue, create an account and bind the character after logging in.")
+        self.enactor.login(acc)
+        self.core.selectscreen(self.enactor)
+        self.msg(text=f"Your Account password has been set to the password you entered just now. Next time, you can login using the\nnormal connect command. pconnect will not work on your currently bound characters again.")
+        acc.set_password(password)
+        for char in acc.reverse.all('characters'):
+            char.attributes.delete('core', 'penn_hash')
+
+
 class CharCreateCommand(Command):
     name = "charcreate"
     re_match = re.compile(r"^(?P<cmd>charcreate)(?: +(?P<args>.+)?)?", flags=re.IGNORECASE)
@@ -89,7 +116,7 @@ class CharCreateCommand(Command):
         char, error = self.core.mapped_typeclasses["mobile"].create(name=name)
         if error:
             raise CommandException(error)
-        acc = self.enactor.get_account()
+        acc = self.enactor.relations.get('account')
         acc.relations.set("account_characters", char, "present", True)
         self.msg(text=AnsiString(f"Character '{char.name}' created! Use ") + AnsiString.from_args("hw", f"charselect {char.name}") + " to join the game!")
 
@@ -100,7 +127,7 @@ class CharSelectCommand(Command):
 
     def execute(self):
         mdict = self.match_obj.groupdict()
-        acc = self.enactor.get_account()
+        acc = self.enactor.relations.get('account')
         chars = acc.relations.all('account_characters')
         if not (args := mdict.get("args", None)):
             names = ', '.join([obj.name for obj in chars])
@@ -143,7 +170,6 @@ class ThinkCommand(MushCommand):
 class ImportCommand(Command):
     name = "@import"
     re_match = re.compile(r"^(?P<cmd>@import)(?: +(?P<args>.+)?)?", flags=re.IGNORECASE)
-    options = ['start', 'rooms', 'exits', 'accounts', 'players']
 
     def execute(self):
         mdict = self.match_obj.groupdict()
@@ -151,41 +177,39 @@ class ImportCommand(Command):
         if not args:
             raise CommandException("@import requires arguments!")
 
-        if not (op := partial_match(args, self.options)):
-            raise CommandException(f"Invalid operation for @import. supports: {self.options}")
+        if not hasattr(self.enactor, 'penn'):
+            Importer(self.enactor, 'outdb')
+            self.msg("Database loaded and ready to Import!")
 
         op_map = {
-            'start': self.op_start,
-            'rooms': self.op_rooms,
-            'exits': self.op_exits,
-            'accounts': self.op_accounts,
-            'players': self.op_players
+            'grid': self.op_grid,
+            'accounts': self.op_accounts
         }
+
+        if not (op := partial_match(args, op_map.keys())):
+            raise CommandException(f"Invalid operation for @import. supports: {op_map.keys()}")
+
         if op != 'start' and not hasattr(self.enactor, 'penn'):
             raise CommandException("@import database is not loaded. use @import start")
         op_map[op]()
 
-    def op_start(self):
-        if hasattr(self.enactor, 'penn'):
-            raise CommandException("@import already loaded database.")
-        Importer(self.enactor, 'outdb')
-        self.msg("Database loaded and ready to Import!")
-
-    def op_rooms(self):
+    def op_grid(self):
+        if 'grid' in self.enactor.penn.complete:
+            raise CommandException("Those were already imported!")
         out = self.enactor.penn.import_rooms()
         self.msg(f"Imported {len(out)} Rooms!")
-
-    def op_exits(self):
         out = self.enactor.penn.import_exits()
         self.msg(f"Imported {len(out)} Exits!")
+        self.enactor.penn.complete.add('grid')
 
     def op_accounts(self):
+        if 'accounts' in self.enactor.penn.complete:
+            raise CommandException("Those were already imported!")
         out = self.enactor.penn.import_accounts()
         self.msg(f"Imported {len(out)} Accounts!")
-
-    def op_players(self):
         out = self.enactor.penn.import_characters()
-        self.msg(f"Imported {len(out)} Players!")
+        self.msg(f"Imported {len(out)} Player Objects!")
+        self.enactor.penn.complete.add('accounts')
 
 
 class PyCommand(Command):
@@ -265,19 +289,20 @@ class PyCommand(Command):
 class LoginCommandMatcher(PythonCommandMatcher):
 
     def access(self, enactor):
-        return enactor.get_account() is None
+        return enactor.relations.get('account') is None
 
     def at_cmdmatcher_creation(self):
         self.add(CreateCommand)
         self.add(ConnectCommand)
         self.add(HelpCommand)
         self.add(WelcomeScreenCommand)
+        self.add(PennConnect)
 
 
 class SelectCommandMatcher(PythonCommandMatcher):
 
     def access(self, enactor):
-        return enactor.get_account() is not None
+        return enactor.relations.get('account') is not None
 
     def at_cmdmatcher_creation(self):
         self.add(CharSelectCommand)

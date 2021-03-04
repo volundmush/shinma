@@ -4,7 +4,7 @@ _GA = object.__getattribute__
 _SA = object.__setattr__
 
 
-class InMemorySaveHandler(object):
+class InMemorySaveHandler:
     """
     Fallback SaveHandler, implementing a minimum of the required save mechanism
     and storing data in memory.
@@ -21,7 +21,7 @@ class InMemorySaveHandler(object):
         return self.storage.get(key, default)
 
 
-class OptionHandler(object):
+class OptionHandler:
     """
     This is a generic Option handler.  Retrieve options either as properties on
     this handler or by using the .get method.

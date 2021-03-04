@@ -1,5 +1,5 @@
 from ..mush.ansi import AnsiString
-from ..utils.evtable import EvTable
+from ..utils.evtable import EvTable as _EvTable
 import math
 
 
@@ -35,7 +35,7 @@ class BaseFormatter:
 class BaseHeader(BaseFormatter):
     mode = "header"
 
-    def __init__(self, text='', fill_character=None, edge_character=None, color=True):
+    def __init__(self, text='', fill_character=None, edge_character=None, color=True, color_category='system'):
         if isinstance(text, AnsiString):
             self.text = text.clean
         else:
@@ -45,18 +45,19 @@ class BaseHeader(BaseFormatter):
         self.fill_character = fill_character
         self.edge_character = edge_character
         self.color = color
+        self.color_category = color_category
 
     def render(self, formatter, obj):
         colors = dict()
-        colors["border"] = obj.options.get("border_color")
-        colors["headertext"] = obj.options.get(f"{self.mode}_text_color")
-        colors["headerstar"] = obj.options.get(f"{self.mode}_star_color")
-
+        styler = obj.style
+        colors["border"] = styler.get(self.color_category, "border_color")
+        colors["headertext"] = styler.get(self.color_category, f"{self.mode}_text_color")
+        colors["headerstar"] = styler.get(self.color_category, f"{self.mode}_star_color")
         width = obj.get_width()
         if self.edge_character:
             width -= 2
 
-        header_text = self.text
+        header_text = self.text.strip()
         if self.text:
             if self.color:
                 header_text = AnsiString.from_args(colors['headertext'], self.text)
@@ -64,13 +65,14 @@ class BaseHeader(BaseFormatter):
                 col_star = AnsiString.from_args(colors['headerstar'], '*')
                 begin_center = AnsiString.from_args(colors['border'], '<') + col_star
                 end_center = col_star + AnsiString.from_args(colors['border'], '>')
-                center_string = begin_center + header_text + end_center
+                center_string = begin_center + ' ' + header_text + ' ' + end_center
+
             else:
                 center_string = " " + AnsiString.from_args(colors['headertext'], header_text) + " "
         else:
             center_string = ""
 
-        fill_character = obj.options.get("%s_fill" % self.mode)
+        fill_character = styler.get(self.color_category, f"{self.mode}_fill")
 
         remain_fill = width - len(center_string)
         if remain_fill % 2 == 0:
@@ -90,7 +92,6 @@ class BaseHeader(BaseFormatter):
             )
         else:
             final_send = left_fill + center_string + right_fill
-
         return final_send
 
 
@@ -143,6 +144,7 @@ class Table(BaseFormatter):
         self.args = args
         self.kwargs = kwargs
         self.rows = list()
+        self.color_category = self.kwargs.pop('color_category', 'system')
         self.h_line_char = self.kwargs.pop("header_line_char", "~")
         self.c_char = self.kwargs.pop("corner_char", "+")
         self.b_left_char = self.kwargs.pop("border_left_char", "|")
@@ -154,8 +156,9 @@ class Table(BaseFormatter):
         self.rows.append(args)
 
     def render(self, formatter, obj):
-        border_color = obj.options.get("border_color")
-        column_color = obj.options.get("column_names_color")
+        styler = obj.style
+        border_color = styler.get(self.color_category, "border_color")
+        column_color = styler.get(self.color_category, "column_names_color")
 
         header_line_char = AnsiString.from_args(border_color, self.h_line_char)
         corner_char = AnsiString.from_args(border_color, self.c_char)
@@ -166,15 +169,25 @@ class Table(BaseFormatter):
 
         width = obj.get_width()
 
-        table = EvTable(
-            *self.args,
+        column_names = [AnsiString.from_args(column_color, arg) for arg in self.args]
+
+        #header_line_char = self.h_line_char
+        #corner_char = self.c_char
+        #border_left_char = self.b_left_char
+        #border_right_char = self.b_right_char
+        #border_top_char = self.b_top_char
+
+        table = _EvTable(
+            *column_names,
             header_line_char=header_line_char,
             corner_char=corner_char,
             border_left_char=border_left_char,
             border_right_char=border_right_char,
             border_top_char=border_top_char,
+            border_bottom_char=border_bottom_char,
             **self.kwargs,
-            maxwidth=width
+            maxwidth=width,
+            width=width
         )
         for row in self.rows:
             table.add_row(*row)

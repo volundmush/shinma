@@ -30,8 +30,6 @@ class Module(ShinmaModule):
             raise GameObjectException("GameObjectManager is already preloaded.")
         for k, v in self.objects.items():
             v.load_initial()
-        for k, v in self.objects.items():
-            v.load_relations()
         self.preload_complete = True
 
     def get_tag(self, name: str):
@@ -58,7 +56,7 @@ class Module(ShinmaModule):
             raise GameObjectException(f"Objid {objid} is already in use!")
         gobj = GameObject(self, objid, name, initial_data)
         gobj.load_initial()
-        gobj.load_relations()
+        gobj.setup_relations()
         self.objects[objid] = gobj
         return gobj
 

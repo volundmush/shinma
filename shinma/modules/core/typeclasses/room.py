@@ -1,4 +1,5 @@
 from . base import BaseTypeClass
+from shinma.utils import lazy_property
 
 
 class RoomTypeClass(BaseTypeClass):
@@ -7,4 +8,3 @@ class RoomTypeClass(BaseTypeClass):
     class_initial_data = {
         "tags": ["room"]
     }
-

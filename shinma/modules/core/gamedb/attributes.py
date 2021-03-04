@@ -29,7 +29,7 @@ class AttributeCategory:
 
     def get(self, name):
         if (attr := self.attributes.get(name, None)):
-            return attr
+            return attr.get()
         return None
 
     def has(self, name):
@@ -95,6 +95,11 @@ class AttributeHandler:
         else:
             if (cat := self.categories.get(category, None)):
                 return cat.clear()
+
+    def has(self, category: str, name: str):
+        if not (cat := self.categories.get(category, None)):
+            return False
+        return cat.has(name)
 
     def dump(self):
         return {k: dump for k, v in self.categories.items() if (dump := v.dump())}

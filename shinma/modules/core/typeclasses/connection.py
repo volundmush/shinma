@@ -1,5 +1,6 @@
 from . base import BaseTypeClass
 from .. mush.ansi import AnsiString
+from ..utils.styling import StyleHandler
 
 
 class ConnectionTypeClass(BaseTypeClass):
@@ -10,6 +11,7 @@ class ConnectionTypeClass(BaseTypeClass):
         "locations": {"contents": {"WelcomeScreen": {"here": True}}}
     }
     command_families = ["connection"]
+    base_style = None
 
     __slots__ = ['connection']
 
@@ -24,23 +26,16 @@ class ConnectionTypeClass(BaseTypeClass):
     def receive_relayed_msg(self, message):
         self.receive_msg(message)
 
-    def get_account(self):
-        if (all := self.reverse["account_connections"]):
-            return list(all)[0]
-
-    def get_playview(self):
-        if (all := self.reverse["playview_connections"]):
-            return list(all)[0]
-
     def get_next_cmd_object(self, obj_chain):
-        return self.get_account()
+        return self.relations.get('account')
 
     def login(self, account):
-        account.add_connection(self)
+        self.relations.set('account', account)
+        account.reverse.add('connections', self)
         account.at_login(self)
 
     def logout(self):
-        if (account := self.get_account()):
+        if (account := self.relations.get('account')):
             account.remove_connection(self)
             account.at_logout(self)
 
@@ -48,3 +43,14 @@ class ConnectionTypeClass(BaseTypeClass):
         if self.connection:
             return self.connection.width
         return 78
+
+    @property
+    def style(self):
+        if (acc := self.relations.get('account')):
+            return acc.style
+        else:
+            if (st := self.base_style):
+                return st
+            else:
+                self.__class__.base_style = StyleHandler(self.__class__, save=False)
+                return self.base_style

@@ -6,72 +6,6 @@ from . commands import connection as LoginCmds, account as AccountCmds
 from . utils.welcome import render_welcome_screen
 from . utils.selectscreen import render_select_screen
 
-TAGS = ("account", "connection", "session", "playview")
-
-NAMESPACES = {
-  "account": {
-    "abbreviation": "acc",
-    "priority": 10
-  },
-  "character": {
-    "abbreviation": "char",
-    "priority": 30
-  },
-  "faction": {
-    "abbreviation": "fac",
-    "priority": 20
-  },
-  "special": {
-    "abbreviation": "sp",
-    "priority": 0
-  }
-}
-
-PROTOTYPES = {
-  "CoreSpecial": {
-    "namespace": "special",
-    "objid_prefix": "special"
-  },
-  "CoreAccount": {
-    "objid_prefix": "account",
-    "namespace": "account",
-    "tags": ["account"]
-  },
-  "CoreConnection": {
-    "objid_prefix": "connection",
-    "tags": ["connection"],
-    "cmdgroups": {"login": "CoreLogin", "auth": "CoreAuthed"},
-    "scripts": ["CoreConnectionScript"]
-  },
-  "CoreSession": {
-    "objid_prefix": "session",
-    "tags": ["session"]
-  },
-  "CorePlayView": {
-    "objid_prefix": "playview",
-    "tags": ["playview"]
-  }
-}
-
-
-OBJECTS = {
-  "CoreEveryone": {
-    "name": "Everyone",
-    "prototypes": "CoreSpecial",
-    "acl_class": "CoreAclEveryone"
-  },
-  "CoreSystem": {
-    "name": "System",
-    "prototypes": "CoreSpecial",
-    "acl_class": "CoreAclSystem"
-  },
-  "CoreOwner": {
-    "name": "Owner",
-    "prototypes": "CoreSpecial",
-    "acl_class": "CoreAclOwner"
-  }
-}
-
 
 class Module(GameDBModule):
     name = "core"
@@ -90,6 +24,8 @@ class Module(GameDBModule):
         engine.subscribe_event("core_load_typeclasses", self.core_typeclasses)
         engine.subscribe_event("core_load_cmdfamilies", self.core_cmdfamilies)
         engine.subscribe_event("core_load_functions", self.core_functions)
+        engine.subscribe_event("core_load_styles", self.core_styles)
+        engine.subscribe_event("core_load_options", self.core_options)
         self.cmdqueue = CmdQueue(self)
         self.cmdfamilies = dict()
         self.typeclasses = dict()
@@ -97,6 +33,8 @@ class Module(GameDBModule):
         self.welcomescreen = None
         self.selectscreen = None
         self.functions = dict()
+        self.option_classes = dict()
+        self.styles = dict()
 
     def core_typeclasses(self, event, *args, **kwargs):
         typeclasses = kwargs["typeclasses"]
@@ -175,10 +113,65 @@ class Module(GameDBModule):
         for func in STRING_FUNCTIONS:
             functions[func.name] = func
 
+    def core_styles(self, event, *args, **kwargs):
+        styles = kwargs["styles"]
+        system = styles.get('system', dict())
+        system_default = {
+            "border_color": ("Headers, footers, table borders, etc.", "Color", "m"),
+            "header_star_color": ("* inside Header lines.", "Color", "hm"),
+            "header_text_color": ("Text inside Header lines.", "Color", "hw"),
+            "header_fill": ("Fill for Header lines.", "Text", "="),
+            "subheader_fill": ("Fill for SubHeader lines.", "Text", "="),
+            "subheader_text_color": ("Text inside SubHeader lines.", "Color", "hw"),
+            "separator_star_color": ("* inside Separator lines.", "Color", "n"),
+            "separator_text_color": ("Text inside Separator lines.", "Color", "w"),
+            "separator_fill": ("Fill for Separator Lines.", "Text", "-"),
+            "footer_star_color": ("* inside Footer lines.", "Color", "n"),
+            "footer_text_color": ("Text inside Footer Lines.", "Color", "n"),
+            "footer_fill": ("Fill for Footer Lines.", "Text", "="),
+            "column_names_color": ("Table column header text.", "Color", "g"),
+            "help_category_color": ("Help category names.", "Color", "n"),
+            "help_entry_color": ("Help entry names.", "Color", "n"),
+            "timezone": ("Timezone for dates. @tz for a list.", "Timezone", "UTC"),
+        }
+        system.update(system_default)
+        styles['system'] = system
+
+
+    def load_styles(self):
+        styles = dict()
+        self.engine.dispatch_module_event("core_load_styles", styles=styles)
+        self.styles = styles
+
+    def load_options(self):
+        options = dict()
+        self.engine.dispatch_module_event("core_load_options", options=options)
+
+        self.option_classes = options
+
+    def core_options(self, event, *args, **kwargs):
+        options = kwargs["options"]
+        from .utils import optionclasses as o
+        options['Text'] = o.Text
+        options['Email'] = o.Email
+        options['Boolean'] = o.Boolean
+        options['Color'] = o.Color
+        options['Timezone'] = o.Timezone
+        options['UnsignedInteger'] = o.UnsignedInteger
+        options['SignedInteger'] = o.SignedInteger
+        options['PositiveInteger'] = o.PositiveInteger
+        options['Duration'] = o.Duration
+        options['Datetime'] = o.Datetime
+        options['Future'] = o.Future
+        options['Lock'] = o.Lock
+
+
     def setup(self):
         self.load_typeclasses()
         self.load_cmdfamilies()
         self.load_functions()
+        self.load_options()
+        self.load_styles()
 
         self.welcomescreen = self.engine.settings.CORE_WELCOMESCREEN
         if isinstance(self.welcomescreen, str):
@@ -189,6 +182,8 @@ class Module(GameDBModule):
         if isinstance(self.selectscreen, str):
             self.selectscreen = import_from_module(self.selectscreen)
 
+        for k, v in self.objects.items():
+            v.setup_relations()
 
     def net_client_connected(self, event, *args, **kwargs):
         if not (typeclass := self.mapped_typeclasses.get("connection", None)):

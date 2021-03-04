@@ -1,7 +1,8 @@
 import random
 import string
 from typing import Any
-from shinma.utils import to_str
+from collections import defaultdict
+from shinma.utils import lazy_property
 from .. gamedb.objects import GameObject
 from .. gamedb.exception import GameObjectException
 from .. mush.ansi import AnsiString
@@ -24,6 +25,41 @@ class ScriptHandler:
         self.scripts = {s.name: s for s in final}
         for s in final:
             s.objects.add(self.obj)
+
+
+class RelationHandler:
+    def __init__(self, owner):
+        self.owner = owner
+        self.relations = dict()
+
+    def set(self, kind: str, obj):
+        self.relations[kind] = obj
+
+    def clear(self, kind):
+        self.relations.pop(kind, None)
+
+    def get(self, kind):
+        return self.relations.get(kind, None)
+
+
+class ReverseHandler:
+
+    def __init__(self, owner):
+        self.owner = owner
+        self.relations = defaultdict(set)
+
+    def all(self, kind):
+        if kind in self.relations:
+            return set(self.relations[kind])
+        return set()
+
+    def add(self, kind, obj):
+        self.relations[kind].add(obj)
+
+    def remove(self, kind, obj):
+        if kind in self.relations:
+            if obj in self.relations[kind]:
+                self.relations[kind].remove(obj)
 
 
 class BaseTypeClass(GameObject):
@@ -57,7 +93,7 @@ class BaseTypeClass(GameObject):
             obj = cls(objid, name, initial_data=initial_data)
             cls.core.objects[objid] = obj
             obj.load_initial()
-            obj.load_relations()
+            obj.setup_relations()
             obj.attributes.set("_core", "typeclass", cls.typeclass_name)
         except GameObjectException as e:
             cls.core.objects.pop(objid, None)
@@ -123,3 +159,25 @@ class BaseTypeClass(GameObject):
 
     def get_width(self):
         return 78
+
+    def add_tag(self, tag: str):
+        t = self.core.get_tag(tag)
+        t.objects.add(self)
+
+    def remove_tag(self, tag: str):
+        t = self.core.get_tag(tag)
+        if self in t.objects:
+            t.objects.remove(self)
+
+    @lazy_property
+    def reverse(self):
+        return ReverseHandler(self)
+
+    @lazy_property
+    def relations(self):
+        return RelationHandler(self)
+
+    def setup_relations(self):
+        if (objid := self.attributes.get('core', 'parent')):
+            if (obj := self.core.objects.get(objid, None)):
+                obj.children.register(self)

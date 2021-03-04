@@ -42,14 +42,13 @@ class ListCommand(MushCommand):
         choice()
 
     def list_accounts(self):
-
         if not (accounts := self.enactor.core.get_tag('account').all()):
             raise CommandException("There are no accounts to list.")
         out = fmt.FormatList(self.enactor)
         out.add(fmt.Header("Accounts"))
-        table = fmt.Table()
+        table = fmt.Table("Objid", "Name", "Characters")
         for acc in accounts:
-            table.add_row(acc.objid)
+            table.add_row(acc.objid, acc.name, ', '.join(x.name for x in acc.reverse.all('characters')))
         out.add(table)
         out.add(fmt.Footer())
         self.enactor.send(out)

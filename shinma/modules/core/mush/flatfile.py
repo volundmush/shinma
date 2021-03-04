@@ -205,6 +205,9 @@ class DbObject:
         self.owns = set()
         self.zoned = set()
 
+    def __repr__(self):
+        return f"<DbObj {self.type} - {self.dbref}: {self.name}>"
+
     @property
     def dbref(self):
         return f"#{self.id}"
@@ -310,22 +313,6 @@ class DbObject:
 
     def lattrp(self, pattern):
         return self.lattr(pattern, inherit=True)
-
-    def check_password(self, password):
-        old_hash = self.get('XYXXY')
-        if not old_hash:
-            return False
-        old_hash = old_hash.value.clean
-        hash_against = old_hash.split(':')[2]
-        check = hashlib.new('sha1')
-        if old_hash.startswith('1:'):
-            check.update(password.encode('utf-8'))
-            return check.hexdigest() == hash_against
-        elif old_hash.startswith('2:'):
-            salt = hash_against[0:2]
-            hash_against = hash_against[2:]
-            check.update(f"{salt}{password}".encode('utf-8'))
-            return check.hexdigest() == hash_against
 
 
 class PennDB:
@@ -514,3 +501,19 @@ class PennDB:
             return self.isobjid(dbref)
         else:
             return self.isdbref(dbref)
+
+
+def check_password(old_hash, password):
+    if not old_hash:
+        return False
+    old_hash = old_hash
+    hash_against = old_hash.split(':')[2]
+    check = hashlib.new('sha1')
+    if old_hash.startswith('1:'):
+        check.update(password.encode('utf-8'))
+        return check.hexdigest() == hash_against
+    elif old_hash.startswith('2:'):
+        salt = hash_against[0:2]
+        hash_against = hash_against[2:]
+        check.update(f"{salt}{password}".encode('utf-8'))
+        return check.hexdigest() == hash_against
