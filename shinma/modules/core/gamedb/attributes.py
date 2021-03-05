@@ -114,3 +114,9 @@ class AttributeHandler:
             self.categories[category] = cat
         for k, v in data.items():
             cat.set(k, v)
+
+    def all(self, category: str = None):
+        if not category:
+            return self.categories.keys()
+        if (cat := self.categories.get(category, None)):
+            return cat.all()

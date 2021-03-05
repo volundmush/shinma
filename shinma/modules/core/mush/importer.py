@@ -63,7 +63,9 @@ class Importer:
         if not (obj := self.obj_map.get(dbobj.id, None)):
             obj = self.create_obj(dbobj, mode)
             for k, v in dbobj.attributes.items():
-                obj.attributes.set('mush', k, v.value.encoded())
+                owner = self.obj_map.get(v.owner, None)
+                flags = v.flags
+                obj.attributes.set('mush', k, {"owner": owner, "flags": flags, 'value': v.value.encoded()})
         return obj
 
     def import_grid(self):
@@ -172,9 +174,7 @@ class Importer:
 
                 # if we don't get an account, then this character can still be accessed using their password, but...
             if (location := self.obj_map.get(v.location, None)):
-                obj.attributes.set('core', 'location', location.objid)
-                obj.relations.set('location', location)
-                location.reverse.add('contents', obj)
+                obj.move_to(location)
             obj.add_tag('penn_character')
             total.append(obj)
         return total

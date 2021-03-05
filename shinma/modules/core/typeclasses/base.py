@@ -63,6 +63,67 @@ class ReverseHandler:
                 self.relations[kind].remove(obj)
 
 
+class MushAttribute:
+    def __init__(self, name):
+        self.owner = None
+        self.name = name
+        self.value = None
+        self.flags = set()
+
+    def dump(self):
+        return {
+            'owner': self.owner.objid if self.owner else None,
+            'flags': self.flags,
+            'value': self.value.encoded() if self.value else ''
+        }
+
+
+class MushAttrHandler:
+
+    def __init__(self, owner):
+        self.owner = owner
+        self.attributes = dict()
+        for k, v in self.owner.attributes.all('mush').items():
+            attr = MushAttribute(k)
+            if (owner := self.owner.core.objects.get(v.get('owner', None), None)):
+                attr.owner = owner
+            attr.value = AnsiString(v.get('value', ''))
+            attr.flags.update(v.get('flags', set()))
+
+    def get_create_attr(self, attr: str):
+        pass
+
+    def get_attr(self, attr: str, inherit=True, ancestors=True, depth=0):
+        if (attr := self.attributes.get(attr.upper())):
+            return attr
+
+    def get_attr_value(self, attr: str, inherit=True, ancestors=True, default=None):
+        if (attr := self.get_attr(attr, inherit, ancestors)):
+            return attr.value
+        return default
+
+    def set_attr_value(self, attr: str, value: Union[str, AnsiString]):
+        if (attr := self.attributes.get(attr.upper(), None)):
+            attr = MushAttribute(attr.upper())
+            self.attributes[attr.name] = attr
+
+        if isinstance(value, AnsiString):
+            attr.value = value
+        else:
+            attr.value = AnsiString(value)
+
+    def hasattr(self, attr: str, inherit=True, ancestors=True):
+        if (attr := self.get_attr(attr, inherit, ancestors)):
+            return True
+        else:
+            return False
+
+    def hasattrval(self, attr: str, inherit=True, ancestors=True):
+        if (attr := self.get_attr(attr, inherit, ancestors)):
+            return attr.truthy()
+        return False
+
+
 class BaseTypeClass(GameObject):
     typeclass_name = None
     typeclass_family = None
@@ -109,7 +170,7 @@ class BaseTypeClass(GameObject):
         return self.name
 
     def listeners(self):
-        return []
+        return self.reverse.all('contents')
 
     def parser(self):
         return Parser(self.core, self.objid, self.objid, self.objid)
@@ -128,27 +189,6 @@ class BaseTypeClass(GameObject):
     def receive_msg(self, message: fmt.FormatList):
         pass
 
-    def mush_get_attr(self, attr: str, inherit=True, ancestors=True, default=None):
-        if (attr := self.attributes.get('mush', attr.upper())):
-            return AnsiString(attr)
-
-    def mush_set_attr(self, attr: str, value: Union[str, AnsiString]):
-        if isinstance(value, AnsiString):
-            self.attributes.set('mush', attr.upper(), value.encoded())
-        else:
-            self.attributes.set('mush', attr.upper(), value)
-
-    def mush_has_attr(self, attr: str, inherit=True, ancestors=True):
-        if (attr := self.mush_get_attr(attr, inherit, ancestors)):
-            return True
-        else:
-            return False
-
-    def mush_has_attrval(self, attr: str, inherit=True, ancestors=True):
-        if (attr := self.mush_get_attr(attr, inherit, ancestors)):
-            return attr.truthy()
-        return False
-
     def location(self):
         if (loc := self.reverse.get("room_contents", None)):
             return list(loc)[0]
@@ -157,27 +197,27 @@ class BaseTypeClass(GameObject):
     def render_appearance(self, viewer, internal=False):
         parser = viewer.parser()
         out = fmt.FormatList(viewer)
-        if (nameformat := self.mush_get_attr('NAMEFORMAT')):
+        if (nameformat := self.mush_attr.get_attr_value('NAMEFORMAT')):
             result, remaining, stopped = parser.evaluate(nameformat, executor=self, number_args={0: self.objid, 1: self.name})
             out.add(fmt.Text(result))
         else:
             out.add(fmt.Text(AnsiString.from_args('hw', self.name) + f"({self.objid})"))
-        if internal and (idesc := self.mush_get_attr('IDESCRIBE')):
+        if internal and (idesc := self.mush_attr.get_attr_value('IDESCRIBE')):
             idesc_eval, remaining, stopped = parser.evaluate(idesc, executor=self)
-            if (idescformat := self.mush_get_attr('IDESCFORMAT')):
+            if (idescformat := self.mush_attr.get_attr_value('IDESCFORMAT')):
                 result, remaining, stopped = parser.evaluate(idescformat, executor=self, number_args={0: idesc_eval})
                 out.add(fmt.Text(result))
             else:
                 out.add(fmt.Text(idesc_eval))
-        elif (desc := self.mush_get_attr('DESCRIBE')):
+        elif (desc := self.mush_attr.get_attr_value('DESCRIBE')):
             desc_eval, remaining, stopped = parser.evaluate(desc, executor=self)
-            if (descformat := self.mush_get_attr('DESCFORMAT')):
+            if (descformat := self.mush_attr.get_attr_value('DESCFORMAT')):
                 result, remaining, stopped = parser.evaluate(descformat, executor=self, number_args={0: desc_eval})
                 out.add(fmt.Text(result))
             else:
                 out.add(fmt.Text(desc_eval))
         if (contents := self.reverse.all('contents')):
-            if (conformat := self.mush_get_attr('CONFORMAT')):
+            if (conformat := self.mush_attr.get_attr_value('CONFORMAT')):
                 contents_objids = ' '.join([con.objid for con in contents])
                 result, remaining, stopped = parser.evaluate(conformat, executor=self, number_args={0: contents_objids})
                 out.add(fmt.Text(result))
@@ -188,7 +228,7 @@ class BaseTypeClass(GameObject):
                 out.add(fmt.Text(AnsiString('\n').join(con)))
         if (exits := self.reverse.all('exits')):
 
-            if (exitformat := self.mush_get_attr('EXITFORMAT')):
+            if (exitformat := self.mush_attr.get_attr_value('EXITFORMAT')):
                 contents_objids = ' '.join([con.objid for con in exits])
                 result, remaining, stopped = parser.evaluate(exitformat, executor=self, number_args={0: contents_objids})
                 out.add(fmt.Text(result))
@@ -243,3 +283,20 @@ class BaseTypeClass(GameObject):
         if (objid := self.attributes.get('core', 'parent')):
             if (obj := self.core.objects.get(objid, None)):
                 obj.children.register(self)
+
+    def move_to(self, destination, look=False):
+        if (loc := self.relations.get('location')):
+            loc.reverse.remove('contents', self)
+        if destination:
+            destination.reverse.add('contents', self)
+            self.relations.set('location', destination)
+            self.attributes.set('core', 'location', destination.objid)
+            if look:
+                destination.render_appearance(self, internal=True)
+        else:
+            self.relations.clear('location')
+            self.attributes.delete('core', 'location')
+
+    @lazy_property
+    def mush_attr(self):
+        return MushAttrHandler(self)
