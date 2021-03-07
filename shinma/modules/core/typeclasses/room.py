@@ -1,4 +1,4 @@
-from . base import BaseTypeClass
+from . base import BaseTypeClass, ReverseHandler
 from shinma.utils import lazy_property
 from ..utils import formatter as fmt
 from ..utils.text import tabular_table
@@ -68,7 +68,7 @@ class RoomTypeClass(BaseTypeClass):
         if (desc := self.mush_attr.get_attr_value('DESCRIBE')):
             desc_eval, remaining, stopped = parser.evaluate(desc, executor=self)
             out.add(fmt.Text(desc_eval))
-        if (contents := self.reverse.all('contents')):
+        if (contents := self.contents.all()):
             mobiles = [c for c in contents if c.typeclass_family == 'mobile' and viewer.can_see(c)]
             other = [c for c in contents if c not in mobiles and viewer.can_see(c)]
             if mobiles:
@@ -77,10 +77,18 @@ class RoomTypeClass(BaseTypeClass):
             if other:
                 out.add(fmt.Subheader('Items'))
                 out.add(RoomItemsFormatter(other))
-        if (exits := self.reverse.all('exits')):
+        if (exits := self.exits.all()):
             exits = [e for e in exits if viewer.can_see(e)]
             if exits:
                 out.add(fmt.Subheader('Exits'))
                 out.add(RoomExitFormatter(exits))
         out.add(fmt.Footer())
         viewer.send(out)
+
+    @lazy_property
+    def exits(self):
+        return ReverseHandler(self, 'core', 'location', 'location')
+
+    @lazy_property
+    def entrances(self):
+        return ReverseHandler(self, 'core', 'destination', 'destination')

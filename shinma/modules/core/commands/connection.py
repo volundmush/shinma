@@ -2,15 +2,19 @@ import re
 import sys
 import time
 import traceback
+from shinma.utils import partial_match
 from . base import Command, MushCommand, CommandException, PythonCommandMatcher
 from ..mush.ansi import AnsiString
-from shinma.utils import partial_match
 from ..typeclasses.account import CRYPT_CON
 from ..mush.importer import Importer
 from ..mush.flatfile import check_password
 
 
 class _LoginCommand(Command):
+    """
+    Simple bit of logic added for the login commands to deal with syntax like:
+    connect "user name" password
+    """
     re_quoted = re.compile(r'"(?P<name>.+)"(: +(?P<password>.+)?)?', flags=re.IGNORECASE)
     re_unquoted = re.compile(r'^(?P<name>\S+)(?: +(?P<password>.+)?)?', flags=re.IGNORECASE)
 
@@ -54,7 +58,8 @@ class CreateCommand(_LoginCommand):
     def execute(self):
         name, password = self.parse_login(self.usage)
         pass_hash = CRYPT_CON.hash(password)
-        account, error = self.core.mapped_typeclasses["account"].create(name=name)
+        identity = self.enactor.core.identity_prefix['A']
+        account, error = self.core.mapped_typeclasses["account"].create(name=name, identity=identity)
         if error:
             raise CommandException(error)
         account.set_password(pass_hash, nohash=True)
@@ -79,6 +84,15 @@ class HelpCommand(_LoginCommand):
         self.msg(text="Pretend I'm showing some help here.")
 
 
+class QuitCommand(Command):
+    name = 'QUIT'
+    re_match = re.compile(r"^(?P<cmd>QUIT)(?: +(?P<args>.+)?)?", flags=re.IGNORECASE)
+
+    def execute(self):
+        self.msg(text="See you again!")
+        self.enactor.close_connection(reason='quit')
+
+
 class PennConnect(_LoginCommand):
     name = 'pconnect'
     re_match = re.compile(r"^(?P<cmd>pconnect)(?: +(?P<args>.+))?", flags=re.IGNORECASE)
@@ -95,13 +109,13 @@ class PennConnect(_LoginCommand):
             raise CommandException("Sorry, that was an incorrect username or password.")
         if not check_password(old_hash, password):
             raise CommandException("Sorry, that was an incorrect username or password.")
-        if not (acc := character.relations.get('character_account')):
+        if not (acc := character.relations.get('account', None)):
             raise CommandException("Character found! However this character has no account. To continue, create an account and bind the character after logging in.")
         self.enactor.login(acc)
         self.core.selectscreen(self.enactor)
         self.msg(text=f"Your Account password has been set to the password you entered just now. Next time, you can login using the normal connect command. pconnect will not work on your currently bound characters again.")
         acc.set_password(password)
-        for char in acc.reverse.all('character_account'):
+        for char in acc.characters.all():
             char.attributes.delete('core', 'penn_hash')
 
 
@@ -113,13 +127,12 @@ class CharCreateCommand(Command):
         mdict = self.match_obj.groupdict()
         if not (name := mdict.get("args", None)):
             raise CommandException("Must enter a name for the character!")
-        char, error = self.core.mapped_typeclasses["mobile"].create(name=name)
+        identity = self.enactor.core.identity_prefix['C']
+        char, error = self.core.mapped_typeclasses["mobile"].create(name=name, identity=identity)
         if error:
             raise CommandException(error)
-        acc = self.enactor.relations.get('connection_account')
-        acc.reverse.add("characters", char)
-        char.attributes.set('core', 'account', acc)
-        char.relations.set('account', acc)
+        acc = self.enactor.relations.get('account', None)
+        acc.characters.add(char)
         self.msg(text=AnsiString(f"Character '{char.name}' created! Use ") + AnsiString.from_args("hw", f"charselect {char.name}") + " to join the game!")
 
 
@@ -129,8 +142,8 @@ class CharSelectCommand(Command):
 
     def execute(self):
         mdict = self.match_obj.groupdict()
-        acc = self.enactor.relations.get('connection_account')
-        if not (chars := acc.reverse.all('character_account')):
+        acc = self.enactor.relations.get('account', None)
+        if not (chars := acc.characters.all()):
             raise CommandException("No characters to join the game as!")
         if not (args := mdict.get("args", None)):
             names = ', '.join([obj.name for obj in chars])
@@ -139,14 +152,14 @@ class CharSelectCommand(Command):
         if not (found := partial_match(args, chars, key=lambda x: x.name)):
             self.msg(text=f"Sorry, no character found named: {args}")
             return
-        created = False
-        if not (pview := found.reverse.first('playview_character')):
+        if not (pview := found.playviews.all()):
             pview, errors = self.core.mapped_typeclasses['playview'].create(objid=f"playview_{found.objid}")
             if errors:
                 raise CommandException(errors)
-            created = True
-            pview.relations.set('playview_character', found)
-        self.enactor.join(pview, created)
+            pview.at_playview_creation(found, self.enactor)
+        else:
+            pview = pview[0]
+        self.enactor.join(pview)
 
 
 class SelectScreenCommand(Command):
@@ -298,7 +311,7 @@ class PyCommand(Command):
 class LoginCommandMatcher(PythonCommandMatcher):
 
     def access(self, enactor):
-        return enactor.relations.get('connection_account') is None
+        return enactor.relations.get('account') is None
 
     def at_cmdmatcher_creation(self):
         self.add(CreateCommand)
@@ -306,18 +319,20 @@ class LoginCommandMatcher(PythonCommandMatcher):
         self.add(HelpCommand)
         self.add(WelcomeScreenCommand)
         self.add(PennConnect)
+        self.add(QuitCommand)
 
 
 class SelectCommandMatcher(PythonCommandMatcher):
 
     def access(self, enactor):
-        return enactor.relations.get('connection_account') and not enactor.relations.get('connection_playview')
+        return enactor.relations.get('account') and not enactor.relations.get('playview')
 
     def at_cmdmatcher_creation(self):
         self.add(CharSelectCommand)
         self.add(CharCreateCommand)
         self.add(SelectScreenCommand)
         self.add(ThinkCommand)
+        self.add(QuitCommand)
 
 
 class ConnectionCommandMatcher(PythonCommandMatcher):

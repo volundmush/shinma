@@ -1,4 +1,4 @@
-from . base import BaseTypeClass
+from . base import BaseTypeClass, ReverseHandler
 from passlib.context import CryptContext
 from ..utils.styling import StyleHandler
 CRYPT_CON = CryptContext(schemes=['argon2'])
@@ -16,14 +16,14 @@ class AccountTypeClass(BaseTypeClass):
 
     def get_next_cmd_object(self, obj_chain):
         if (conn := obj_chain.get("connection")):
-            return conn.relations.get('connection_playview')
+            return conn.relations.get('playview', None)
 
     def listeners(self):
         # the listeners of an Account should be all Connections which are
         # logged-in to it at the moment.
 
         # This shouldn't be used much, though...
-        return self.reverse.all('connections_account')
+        return self.connections.all()
 
     def at_login(self, connection):
         pass
@@ -45,3 +45,11 @@ class AccountTypeClass(BaseTypeClass):
     @lazy_property
     def style(self):
         return StyleHandler(self, save=True)
+
+    @lazy_property
+    def characters(self):
+        return ReverseHandler(self, 'core', 'account', 'account')
+
+    @lazy_property
+    def connections(self):
+        return ReverseHandler(self, 'core', 'account', 'account')

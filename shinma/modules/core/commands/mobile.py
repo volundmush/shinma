@@ -10,8 +10,8 @@ class LookCommand(MushCommand):
         if self.args:
             arg = self.gather_arg()
             if len(arg):
-                loc = self.enactor.relations.get('location')
-                candidates = loc.reverse.all('contents') if loc else []
+                loc = self.enactor.relations.get('location', None)
+                candidates = loc.contents.all() if loc else []
                 if (found := self.enactor.search(arg.clean, candidates)):
                     for f in found:
                         self.look_at(f)
@@ -23,7 +23,7 @@ class LookCommand(MushCommand):
             self.look_here()
 
     def look_at(self, target):
-        if (loc := self.enactor.relations.get('location')):
+        if (loc := self.enactor.relations.get('location', None)):
             if loc == target:
                 loc.render_appearance(self.enactor, internal=True)
             else:
@@ -32,7 +32,7 @@ class LookCommand(MushCommand):
             target.render_appearance(self.enactor)
 
     def look_here(self):
-        if (loc := self.enactor.relations.get('location')):
+        if (loc := self.enactor.relations.get('location', None)):
             loc.render_appearance(self.enactor, internal=True)
         else:
             raise CommandException("You are nowhere. There's not much to see.")
@@ -50,14 +50,14 @@ class ExitCommand(Command):
 
     def execute(self):
         ex = self.match_obj
-        if not (des := ex.relations.get('destination')):
+        if not (des := ex.relations.get('destination', None)):
             raise CommandException("Sorry, that's going nowhere fast.")
 
         out_here = fmt.FormatList(ex)
         out_here.add(fmt.Text(f"{self.enactor.name} heads over to {des.name}."))
 
         out_there = fmt.FormatList(ex)
-        if not (loc := self.enactor.relations.get('location')):
+        if not (loc := self.enactor.relations.get('location', None)):
             out_there.add(fmt.Text(f"{self.enactor.name} arrives from somewhere..."))
         else:
             out_there.add(fmt.Text(f"{self.enactor.name} arrives from {loc.name}"))
@@ -70,9 +70,9 @@ class MobileExitMatcher(BaseCommandMatcher):
     priority = 110
 
     def match(self, enactor, text, obj_chain):
-        if not (loc := enactor.relations.get('location')):
+        if not (loc := enactor.relations.get('location', None)):
             return
-        if not (exits := [e for e in loc.reverse.all('exits') if enactor.can_see(e)]):
+        if not (exits := [e for e in loc.exits.all() if enactor.can_see(e)]):
             return
 
         if text.lower().startswith('goto '):

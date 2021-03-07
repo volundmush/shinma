@@ -25,14 +25,14 @@ class ConnectionTypeClass(BaseTypeClass):
             message.send(self)
 
     def get_next_cmd_object(self, obj_chain):
-        return self.relations.get('connection_account')
+        return self.relations.get('account', None)
 
     def login(self, account):
-        self.relations.set('connection_account', account)
+        account.connections.add(self)
         account.at_login(self)
 
     def logout(self):
-        if (account := self.relations.get('connection_account')):
+        if (account := self.relations.get('account', None)):
             account.remove_connection(self)
             account.at_logout(self)
 
@@ -43,7 +43,7 @@ class ConnectionTypeClass(BaseTypeClass):
 
     @property
     def style(self):
-        if (acc := self.relations.get('connection_account')):
+        if (acc := self.relations.get('account', None)):
             return acc.style
         else:
             if (st := self.base_style):
@@ -52,8 +52,18 @@ class ConnectionTypeClass(BaseTypeClass):
                 self.__class__.base_style = StyleHandler(self.__class__, save=False)
                 return self.base_style
 
-    def join(self, playview, created: bool = False):
-        self.relations.set('connection_playview', playview)
-        if created:
-            playview.at_playview_creation(self)
+    def join(self, playview):
+        playview.connections.add(self)
         playview.at_connection_join(self)
+
+    def leave(self):
+        if (play := self.relations.get('playview', None)):
+            play.connections.remove(self)
+            play.at_connection_leave(self)
+            if not play.connections.all():
+                play.at_last_connection_leave(self)
+
+    def close_connection(self, reason: str = 'quit'):
+        self.logout()
+        self.leave()
+        self.core.close_connection(reason=reason)

@@ -179,7 +179,6 @@ class DbObject:
         self.name = ""
         self.location = -1
         self.exits = -1
-        self.entrances = set()
 
         self.parent = -1
         self.owner = -1
@@ -196,7 +195,7 @@ class DbObject:
 
         self.children = set()
         self.contents = set()
-        self.exits = set()
+        self.entrances = set()
         self.parent_obj = None
         self.owner_obj = None
         self.zone_obj = None

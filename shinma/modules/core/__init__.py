@@ -1,13 +1,57 @@
-import os, pathlib, sys, time
+import os, pathlib, sys, time, re
 from collections import defaultdict
-from shinma.utils import import_from_module
+from shinma.utils import import_from_module, partial_match
 from . gamedb import Module as GameDBModule
 from . cmdqueue import QueueEntry, CmdQueue
 from . commands import connection as LoginCmds, account as AccountCmds, mobile as MobileCmds
 from . utils.welcome import render_welcome_screen
 from . utils.selectscreen import render_select_screen
-from tinydb import TinyDB, Query
 import ujson
+
+
+class Identity:
+    re_name = re.compile(r"(?s)^(\w|\.|-| |'|@)+$")
+
+    def __init__(self, core, name, prefix, priority=0):
+        self.core = core
+        self.name = name
+        self.prefix = prefix
+        self.priority = priority
+        self.objects = set()
+        self.aliases = dict()
+
+    def search(self, name, aliases=True, exact=False):
+        name_lower = name.lower()
+        if aliases:
+            for k, v in self.aliases.items():
+                if name_lower == k.lower():
+                    return v, None
+        if exact:
+            for obj in self.objects:
+                if name_lower == obj.name.lower():
+                    return obj, None
+        else:
+            if (found := partial_match(name, self.objects, key=lambda x: x.name)):
+                return found, None
+        return None, f"Sorry, nothing matches: {name}"
+
+
+    def valid(self, name: str):
+        return self.re_name.match(name)
+
+    def available(self, name: str, exclude=None):
+        for obj in self.objects:
+            if obj == exclude:
+                continue
+            if obj.name.lower() == name.lower():
+                return False
+        for k, v in self.aliases.items():
+            if v == exclude:
+                continue
+            if k.lower() == name.lower():
+                return False
+        return True
+
 
 
 class Module(GameDBModule):
@@ -29,6 +73,8 @@ class Module(GameDBModule):
         engine.subscribe_event("core_load_functions", self.core_functions)
         engine.subscribe_event("core_load_styles", self.core_styles)
         engine.subscribe_event("core_load_options", self.core_options)
+        engine.subscribe_event('core_load_identities', self.core_identities)
+        engine.subscribe_event('core_object_setup_relations', self.core_object_setup_relations)
         self.cmdqueue = CmdQueue(self)
         self.cmdfamilies = dict()
         self.typeclasses = dict()
@@ -38,12 +84,13 @@ class Module(GameDBModule):
         self.functions = dict()
         self.option_classes = dict()
         self.styles = dict()
+        self.identities = dict()
+        self.identity_prefix = dict()
 
     def dump(self):
-        f = open('gamedb.json', 'w')
-        data = {k: v.dump() for k, v in self.objects.items()}
-        ujson.dump(data, f)
-        f.close()
+        with open('gamedb.json', 'w') as f:
+            data = {k: v.dump() for k, v in self.objects.items()}
+            ujson.dump(data, f)
 
     def core_typeclasses(self, event, *args, **kwargs):
         typeclasses = kwargs["typeclasses"]
@@ -170,9 +217,9 @@ class Module(GameDBModule):
         if os.path.exists('gamedb.json'):
             print(f"Loading data...")
             start = time.time()
-            f = open('gamedb.json', 'r')
-            data = ujson.load(f)
-            f.close()
+            with open('gamedb.json', 'r') as f:
+                data = ujson.load(f)
+
             for k, v in data.items():
                 if (typeclass := self.typeclasses.get(v.pop('typeclass', None), None)):
                     obj = typeclass(objid=v.pop('objid'), name=v.pop('name'), initial_data=v)
@@ -199,12 +246,86 @@ class Module(GameDBModule):
         options['Future'] = o.Future
         options['Lock'] = o.Lock
 
+    def core_object_setup_relations(self, event, *args, **kwargs):
+        obj = kwargs['object']
+        if obj.typeclass_family == 'exit':
+            if (dest := self.objects.get(obj.attributes.get('core', 'destination'),None)):
+                dest.entrances.add(obj)
+                obj.relations['destination'] = obj
+            if (loc := self.objects.get(obj.attributes.get('core', 'location'), None)):
+                loc.exits.add(obj)
+                obj.relations['location'] = obj
+            if (dist := self.objects.get(obj.attributes.get('core', 'district'), None)):
+                dist.exits.add(obj)
+                obj.relations['district'] = obj
+
+        if obj.typeclass_family == 'room':
+            if (dist := self.objects.get(obj.attributes.get('core', 'district'), None)):
+                dist.rooms.add(obj)
+                obj.relations['district'] = obj
+
+
+        if obj.typeclass_family == 'mobile':
+            if (acc := self.objects.get(obj.attributes.get('core', 'account'), None)):
+                acc.characters.add(obj)
+                obj.relations['account'] = acc
+            if (pview := self.objects.get(obj.attributes.get('core', 'playview'), None)):
+                pview.characters.add(obj)
+                obj.relations['playview'] = pview
+
+        if obj.typeclass_family == 'connection':
+            if (acc := self.objects.get(obj.attributes.get('core', 'account'), None)):
+                acc.connections.add(obj)
+                obj.relations['account'] = acc
+            if (pview := self.objects.get(obj.attributes.get('core', 'playview'), None)):
+                pview.connections.add(obj)
+                obj.relations['playview'] = pview
+
+
+    def core_identities(self, event, *args, **kwargs):
+        identities = kwargs['identities']
+        identities['account'] = {
+            'prefix': 'A',
+            'description': 'For Accounts',
+            'priority': 10
+        }
+        identities['character'] = {
+            'prefix': 'C',
+            'description': 'For Player Characters',
+            'priority': 20
+        }
+        identities['special'] = {
+            'prefix': 'S',
+            'description': 'For special entities.',
+            'priority': -9999999
+        }
+        identities['faction'] = {
+            'prefix': 'F',
+            'description': 'For Factions',
+            'priority': 0
+        }
+        identities['theme'] = {
+            'prefix': 'T',
+            'description': 'For themes/settings.',
+            'priority': 5
+        }
+
+    def load_identities(self):
+        identities = dict()
+        self.engine.dispatch_module_event('core_load_identities', identities=identities)
+
+        for k, v in identities.items():
+            iden = Identity(self, k, prefix=v['prefix'], priority=v.get('priority', 0))
+            self.identities[k] = iden
+            self.identity_prefix[iden.prefix] = iden
+
     def setup(self):
         self.load_typeclasses()
         self.load_cmdfamilies()
         self.load_functions()
         self.load_options()
         self.load_styles()
+        self.load_identities()
         self.load_asset_objects()
         self.load_dynamic_objects()
 
@@ -251,3 +372,15 @@ class Module(GameDBModule):
 
     async def start(self):
         await self.cmdqueue.start()
+
+    def search_identity(self, text, aliases=True, exact=False):
+        if ':' not in text:
+            return None, "Identity search syntax - Prefix:Name"
+        pre, name = text.split(':')
+        pre = pre.strip().upper()
+        name = name.strip()
+        if not (pre and name):
+            return None, "Identity search syntax - Prefix:Name"
+        if not (pre_found := partial_match(pre, list(self.identity_prefix.keys()))):
+            return None, f"No prefix matching {pre}"
+        return self.identity_prefix[pre_found].search(name, aliases=aliases, exact=exact)

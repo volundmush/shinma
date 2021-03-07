@@ -1,6 +1,7 @@
 import random
 import string
 import re
+import time
 from typing import Any, Union
 from collections import defaultdict
 from shinma.utils import lazy_property, partial_match
@@ -9,24 +10,6 @@ from .. gamedb.exception import GameObjectException
 from .. mush.ansi import AnsiString
 from ..utils import formatter as fmt
 from ..mush.parser import Parser
-
-
-class ScriptHandler:
-
-    def __init__(self, obj):
-        self.obj = obj
-        self.scripts = dict()
-
-    def dispatch_event(self, event: str, *args, **kwargs):
-        return [v.on_object_event(self.obj, event, *args, **kwargs) for k, v in self.scripts.items()]
-
-    def setup(self):
-        final = set()
-        for proto in self.obj.prototypes:
-            final = final.union(proto.scripts)
-        self.scripts = {s.name: s for s in final}
-        for s in final:
-            s.objects.add(self.obj)
 
 
 class RelationHandler:
@@ -53,33 +36,36 @@ class RelationHandler:
     def dump(self):
         return {k: v.objid for k, v in self.relations.items()}
 
+    def delete(self):
+        for rel in self.relations.keys():
+            self.clear(rel)
+
 
 class ReverseHandler:
 
-    def __init__(self, owner):
+    def __init__(self, owner, category: str, attr: str, rel: str = None):
         self.owner = owner
-        self.relations = defaultdict(list)
+        self.category = category
+        self.attr = attr
+        self.rel = rel
+        self.relations = set()
 
-    def all(self, kind):
-        if kind in self.relations:
-            return list(self.relations[kind])
-        return list()
+    def all(self):
+        return list(self.relations)
 
-    def add(self, kind, obj):
-        exist = self.relations[kind]
-        if obj in exist:
-            return
-        exist.append(obj)
+    def add(self, obj, loading=False):
+        self.relations.add(obj)
+        if not loading:
+            obj.attributes.set(self.category, self.attr, self.owner.objid)
+        if self.rel:
+            obj.relations[self.rel] = self.owner
 
-    def remove(self, kind, obj):
-        if kind in self.relations:
-            if obj in self.relations[kind]:
-                self.relations[kind].remove(obj)
+    def remove(self, obj):
+        if obj in self.relations:
+            self.relations.remove(obj)
+        if self.rel:
+            obj.relations.pop(self.rel, None)
 
-    def first(self, kind):
-        if (found := self.relations.get(kind, None)):
-            if found:
-                return found[0]
 
 class MushAttribute:
     def __init__(self, name):
@@ -165,7 +151,7 @@ class BaseTypeClass(GameObject):
         return attempt
 
     @classmethod
-    def create(cls, name: str = None, objid=None, prefix=None, initial_data=None, asset=False):
+    def create(cls, name: str = None, objid=None, prefix=None, initial_data=None, asset=False, timestamp=None, identity=None):
         if objid is None:
             objid = cls.generate_id(prefix)
         if name is None:
@@ -173,15 +159,30 @@ class BaseTypeClass(GameObject):
         if initial_data is None:
             initial_data = cls.class_initial_data
         try:
+            if identity:
+                if not identity.valid(name):
+                    return None, f"{name} is not a valid name for a {identity.name}"
+                if not identity.available(name):
+                    return None, f"The name {name} is already in use."
             obj = cls(objid, name, initial_data=initial_data, asset=asset)
             cls.core.objects[objid] = obj
             obj.load_initial()
+            if timestamp is None:
+                timestamp = time.time()
+            obj.attributes.set('core', 'datetime_created', timestamp)
+            obj.attributes.set('core', 'datetime_modified', timestamp)
+            if identity:
+                obj.identity = identity
+                identity.objects.add(obj)
+            obj.init_attributes()
             obj.setup_relations()
-            obj.attributes.set("_core", "typeclass", cls.typeclass_name)
         except GameObjectException as e:
             cls.core.objects.pop(objid, None)
             return None, str(e)
         return obj, None
+
+    def init_attributes(self):
+        pass
 
     def __repr__(self):
         return f"<{self.__class__.__name__} TypeClass: {self.objid} - {self.name}>"
@@ -190,7 +191,7 @@ class BaseTypeClass(GameObject):
         return self.name
 
     def listeners(self):
-        return self.reverse.all('location')
+        return self.contents.all()
 
     def parser(self):
         return Parser(self.core, self.objid, self.objid, self.objid)
@@ -231,7 +232,7 @@ class BaseTypeClass(GameObject):
                 out.add(fmt.Text(result))
             else:
                 out.add(fmt.Text(desc_eval))
-        if (contents := self.reverse.all('location')):
+        if (contents := self.contents.all()):
             if (conformat := self.mush_attr.get_attr_value('CONFORMAT')):
                 contents_objids = ' '.join([con.objid for con in contents])
                 result, remaining, stopped = parser.evaluate(conformat, executor=self, number_args={0: contents_objids})
@@ -240,17 +241,6 @@ class BaseTypeClass(GameObject):
                 con = [AnsiString("Contents:")]
                 for obj in contents:
                     con.append(f" * " + AnsiString.send_menu(AnsiString.from_args('hw', obj.name), [(f'look {obj.name}', 'Look')]) + f" ({obj.objid})")
-                out.add(fmt.Text(AnsiString('\n').join(con)))
-        if (exits := self.reverse.all('exits')):
-
-            if (exitformat := self.mush_attr.get_attr_value('EXITFORMAT')):
-                contents_objids = ' '.join([con.objid for con in exits])
-                result, remaining, stopped = parser.evaluate(exitformat, executor=self, number_args={0: contents_objids})
-                out.add(fmt.Text(result))
-            else:
-                con = [AnsiString("Obvious Exits:")]
-                for obj in exits:
-                    con.append(f" * " + AnsiString.send_menu(AnsiString.from_args('hw', obj.name), [(f'go {obj.name}', 'Move here')]) + f" leads to {obj.relations.get('destination').name}")
                 out.add(fmt.Text(AnsiString('\n').join(con)))
         viewer.send(out)
 
@@ -286,27 +276,18 @@ class BaseTypeClass(GameObject):
         if self in t.objects:
             t.objects.remove(self)
 
-    @lazy_property
-    def reverse(self):
-        return ReverseHandler(self)
-
-    @lazy_property
-    def relations(self):
-        return RelationHandler(self)
-
     def setup_relations(self):
-        if (rel := self.initial_data.get('relations', None)):
-            for k, v in rel.items():
-                if (obj := self.core.objects.get(v, None)):
-                    self.relations.set(k, obj)
+        pass
 
     def move_to(self, destination, look=False):
+        if (loc := self.relations.get('location', None)):
+            if loc == destination:
+                return
+            loc.contents.remove(self)
         if destination:
-            self.relations.set('location', destination)
+            destination.contents.add(self)
             if look:
                 destination.render_appearance(self, internal=True)
-        else:
-            self.relations.clear('location')
 
     @lazy_property
     def mush_attr(self):
@@ -400,5 +381,8 @@ class BaseTypeClass(GameObject):
             'attributes': self.attributes.dump(),
             'tags': [t for t in self.tags.keys()],
             'typeclass': self.typeclass_name,
-            'relations': self.relations.dump()
         }
+
+    @lazy_property
+    def contents(self):
+        return ReverseHandler(self, 'core', 'location', 'location')

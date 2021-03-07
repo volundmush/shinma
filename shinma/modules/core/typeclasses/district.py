@@ -1,4 +1,5 @@
-from . base import BaseTypeClass
+from . base import BaseTypeClass, ReverseHandler
+from shinma.utils import lazy_property
 
 
 class DistrictTypeClass(BaseTypeClass):
@@ -8,3 +9,15 @@ class DistrictTypeClass(BaseTypeClass):
     class_initial_data = {
         "tags": ["district"]
     }
+
+    @lazy_property
+    def exits(self):
+        return ReverseHandler(self, 'core', 'district', 'district')
+
+    @lazy_property
+    def rooms(self):
+        return ReverseHandler(self, 'core', 'district', 'district')
+
+    @lazy_property
+    def districts(self):
+        return ReverseHandler(self, 'core', 'parent', 'parent')

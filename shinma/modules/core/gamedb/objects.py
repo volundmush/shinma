@@ -4,7 +4,7 @@ from . exception import GameObjectException
 
 class GameObject:
     core = None
-    __slots__ = ["name", "objid", "tags", "attributes", "initial_data", "aliases", "asset"]
+    __slots__ = ["name", "objid", "tags", "attributes", "initial_data", "aliases", "asset", 'relations', 'identity']
 
     def __init__(self, objid: str, name: str, initial_data=None, asset: bool = False):
         self.name = name
@@ -13,6 +13,8 @@ class GameObject:
         self.attributes = AttributeHandler(self)
         self.tags = dict()
         self.asset = asset
+        self.relations = dict()
+        self.identity = None
         if initial_data is not None:
             self.initial_data = initial_data
         else:

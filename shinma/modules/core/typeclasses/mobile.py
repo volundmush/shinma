@@ -1,4 +1,5 @@
-from . base import BaseTypeClass
+from . base import BaseTypeClass, ReverseHandler
+from shinma.utils import lazy_property
 
 
 class MobileTypeClass(BaseTypeClass):
@@ -11,9 +12,18 @@ class MobileTypeClass(BaseTypeClass):
     command_families = ['mobile']
 
     def listeners(self):
-        if (p := self.reverse.first('playview_puppet')):
-            return [p]
-        return []
+        return self.playviews.all()
 
     def is_active(self):
-        return self.relations.first('playview_character') or self.relations.first('playview_puppet')
+        return self.playviews.all()
+
+    @lazy_property
+    def playviews(self):
+        return ReverseHandler(self, 'core', 'character', 'character')
+
+    @lazy_property
+    def controllers(self):
+        return ReverseHandler(self, 'core', 'puppet', 'puppet')
+
+    def init_attributes(self):
+        self.attributes.set('core', 'playtime', 0)

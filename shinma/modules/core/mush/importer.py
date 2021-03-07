@@ -54,14 +54,18 @@ class Importer:
         self.complete = set()
         self.obj_map = dict()
 
-    def create_obj(self, dbobj, mode):
-        obj, error = self.core.mapped_typeclasses[mode].create(name=dbobj.name, objid=dbobj.objid)
+    def create_obj(self, dbobj, mode, identity=None):
+        obj, error = self.core.mapped_typeclasses[mode].create(name=dbobj.name, objid=dbobj.objid, identity=identity)
+        if error:
+            print(f"OOPS: {error}")
         self.obj_map[dbobj.id] = obj
         return obj
 
-    def get_or_create_obj(self, dbobj, mode):
+    def get_or_create_obj(self, dbobj, mode, identity=None):
         if not (obj := self.obj_map.get(dbobj.id, None)):
-            obj = self.create_obj(dbobj, mode)
+            obj = self.create_obj(dbobj, mode, identity=identity)
+            obj.attributes.set('core', 'datetime_created', dbobj.created)
+            obj.attributes.set('core', 'datetime_modified', dbobj.modified)
             for k, v in dbobj.attributes.items():
                 if k == 'ALIAS':
                     for a in [a for a in v.value.clean.split(';') if a]:
@@ -82,7 +86,7 @@ class Importer:
         for k, v in districts.items():
             dbobj = dis_data[k]
             if (parent := self.obj_map.get(dbobj.parent, None)):
-                v.relations.set('district_parent', parent)
+                parent.districts.add(v)
             if (ic := dbobj.get('D`IC', inherit=False)) and ic.value.truthy():
                 v.attributes.set('core', 'ic', True)
 
@@ -93,7 +97,7 @@ class Importer:
         for k, v in room_data.items():
             obj = self.get_or_create_obj(v, 'room')
             if (district := districts.get(v.parent, None)):
-                obj.relations.set('room_district', district)
+                district.rooms.add(obj)
                 room_districts[k] = obj
             else:
                 nodist_room[k] = obj
@@ -110,13 +114,13 @@ class Importer:
             if not (destination := self.obj_map.get(v.location, None)):
                 continue  # No reason to make an Exit for a room that doesn't exist, is there?
             obj = self.get_or_create_obj(v, 'exit')
-            obj.relations.set('exits', location)
+            location.exits.add(obj)
+            destination.entrances.add(obj)
             if (dist := location.relations.get('room_district')):
-                obj.relations.set('exit_district', dist)
+                dist.exits.add(obj)
                 exit_dist[k] = obj
             else:
                 exit_nodist[k] = obj
-            obj.relations.set('destination', destination)
 
             obj.add_tag('penn_exit')
             exit_total[k] = obj
@@ -131,26 +135,28 @@ class Importer:
         }
 
     def import_accounts(self):
+        namespace = self.core.identity_prefix['A']
         data = self.db.list_accounts()
         total = list()
         for k, v in data.items():
-            obj = self.get_or_create_obj(v, 'account')
+            obj = self.get_or_create_obj(v, 'account', identity=namespace)
             obj.add_tag('penn_account')
             total.append(obj)
         return total
 
     def import_characters(self):
+        namespace = self.core.identity_prefix['C']
         data = self.db.list_players()
         total = list()
         for k, v in data.items():
             if 'Guest' in v.powers:
                 # Filtering out guests.
                 continue
-            obj = self.get_or_create_obj(v, 'mobile')
+            obj = self.get_or_create_obj(v, 'mobile', identity=namespace)
             obj.attributes.set("core", "penn_hash", v.get('XYXXY').value.clean)
             if (account := self.obj_map.get(v.parent, None)):
                 # Hooray, we have an account!
-                obj.relations.set('character_account', account)
+                account.characters.add(obj)
 
                 if 'WIZARD' in v.flags:
                     if not account.attributes.has('core', 'supervisor_level'):
@@ -165,7 +171,7 @@ class Importer:
 
                 # if we don't get an account, then this character can still be accessed using their password, but...
             if (location := self.obj_map.get(v.location, None)):
-                obj.move_to(location)
+                obj.attributes.set('core', 'logout_location', location.objid)
             obj.add_tag('penn_character')
             total.append(obj)
         return total

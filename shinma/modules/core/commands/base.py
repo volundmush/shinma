@@ -93,14 +93,12 @@ class MushCommand(Command):
         so use whatever you want.
         """
         if not (matcher := getattr(cls, 're_match', None)):
-            print(f"No match for {cls} - compiling...")
             names = [cls.name]
             names.extend(getattr(cls, 'aliases', []))
             names = '|'.join(names)
             cls.re_match = re.compile(
                 f"^(?P<cmd>{names})(?P<switches>(/(\w+)?)+)?(?::(?P<mode>\S+)?)?(?:\s+(?P<args>(?P<lhs>[^=]+)(?:=(?P<rhs>.*))?)?)?",
                 flags=re.IGNORECASE)
-            print(f"Compiled regex: {cls.re_match}")
             matcher = cls.re_match
 
         if (result := matcher.fullmatch(text)):
