@@ -89,6 +89,15 @@ class StyleCommand(MushCommand):
     aliases = ['@sty', '@styl']
 
 
+class DumpCommand(MushCommand):
+    name = '@dump'
+    aliases = []
+
+    def execute(self):
+        self.enactor.core.dump()
+        self.enactor.msg(text="Dump complete!")
+
+
 class AccountCommandMatcher(PythonCommandMatcher):
 
     def access(self, enactor):
@@ -99,3 +108,5 @@ class AccountCommandMatcher(PythonCommandMatcher):
         self.add(SLevelCommand)
         self.add(ExamineCommand)
         self.add(ListCommand)
+        self.add(DumpCommand)
+        self.add(StyleCommand)

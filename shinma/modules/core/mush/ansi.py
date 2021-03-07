@@ -630,9 +630,14 @@ class AnsiString(str):
             self.clean = src.clean
             self.markup = list(src.markup)
             self.markup_idx_map = list(src.markup_idx_map)
-        else:
-            if src:
+        elif src:
+            if AnsiMarkup.TAG_START in src:
                 self.decode(src)
+            else:
+                if src:
+                    self.clean = src
+                    for c in list(src):
+                        self.markup_idx_map.append((None, c))
 
     def __len__(self):
         return len(self.clean)
@@ -722,21 +727,11 @@ class AnsiString(str):
     def __rmul__(self, other):
         if not isinstance(other, int):
             return self
-        if other == 0:
-            return AnsiString('')
-        n = self.clone()
-        if other == 1:
-            return n
-        if other > 1:
-            for _ in range(other - 1):
-                n.markup_idx_map.extend(self.markup_idx_map)
-            n.regen_clean()
-        return n
+        return self * other
 
     def __add__(self, other):
         if isinstance(other, AnsiString):
             n = self.clone()
-            n.markup_idx_map.append((None, ''))
             n.markup_idx_map.extend(other.markup_idx_map)
             n.regen_clean()
             return n
@@ -752,7 +747,6 @@ class AnsiString(str):
 
     def __iadd__(self, other):
         if isinstance(other, AnsiString):
-            self.markup_idx_map.append((None, ''))
             self.markup_idx_map.extend(other.markup_idx_map)
             self.regen_clean()
             return self
@@ -1028,12 +1022,16 @@ class AnsiString(str):
 
     @classmethod
     def from_args(cls, code: str, text: str):
-        try:
-            if isinstance(text, AnsiString):
-                text = text.encoded()
-            return cls(f"{AnsiMarkup.TAG_START}c{code}{AnsiMarkup.TAG_END}{text}{AnsiMarkup.TAG_START}c/{AnsiMarkup.TAG_END}")
-        except AnsiException as e:
-            return cls(f"#-1 INVALID ANSI DEFINITION: {e}")
+        code = code.strip()
+        if code:
+            try:
+                if isinstance(text, AnsiString):
+                    text = text.encoded()
+                return cls(f"{AnsiMarkup.TAG_START}c{code}{AnsiMarkup.TAG_END}{text}{AnsiMarkup.TAG_START}c/{AnsiMarkup.TAG_END}")
+            except AnsiException as e:
+                return cls(f"#-1 INVALID ANSI DEFINITION: {e}")
+        else:
+            return AnsiString(text)
 
     @classmethod
     def from_html(cls, tag: str, text: str, **kwargs):
@@ -1078,9 +1076,14 @@ class AnsiString(str):
         if mxp:
             tuples = [(t[0], html.escape(t[1])) for t in tuples]
 
+        tag_stack = list()
+        ansi_stack = list()
+        mxp_stack = list()
         cur = None
         out = ""
         cur_ansi = None
+        cur_mxp = None
+
         for m, c in tuples:
             if m:
                 if cur:
@@ -1090,49 +1093,87 @@ class AnsiString(str):
                         out += c
                     else:
                         # we are moving to something that is NOT the same markup, but is not None.
-                        # First, transition Ansi.
-                        if m.code == 'c':
-                            if cur_ansi:
-                                out += cur_ansi.ansi.transition(m.ansi, xterm256=xterm256, downgrade=downgrade)
-                                if m.ansi.reset:
-                                    cur_ansi = None
-                                else:
-                                    cur_ansi = m
-                            else:
-                                cur_ansi = m
-                                out += cur_ansi.ansi.render(xterm256=xterm256, downgrade=downgrade)
-
                         if m.parent is cur:
                             # we moved into a child. No need to terminate MXP yet.
                             if m.code == 'p' and mxp:
                                 out += m.enter_html()
-                        elif cur.parent is m:
-                            # we left a child and re-entered its parent. The child's MXP must be terminated.
-                            if cur.code == 'p' and mxp:
-                                out += m.exit_html()
+                                mxp_stack.append(m)
+                            elif m.code == 'c' and ansi:
+                                ansi_stack.append(m)
+                                out += m.ansi.transition(cur_ansi, xterm256=xterm256, downgrade=downgrade)
+                            tag_stack.append(m)
                         else:
-                            # this was some other kind of transition. Let's figure out what kind and respond appropriately.
+                            # We left a tag and are moving into another kind of tag. It might be a parent, an ancestor,
+                            # or completely unrelated. Let's find out which, first!
                             ancestors = cur.ancestors(reversed=True)
                             idx = None
-                            try:
-                                idx = ancestors.index(m)
-                                # this is an ancestor if we have an index. Otherwise, it will raise ValueError.
+
+                            if m in tag_stack:
                                 # We need to close out of the ancestors we no longer have. A slice accomplishes that.
-                                if mxp:
-                                    for ancestor in reversed(ancestors[idx:]):
-                                        if ancestor.code == 'p':
-                                            out += ancestor.exit_html()
+                                tags_we_left = ancestors[tag_stack.index(m):]
+                                ansi_we_left = [t for t in tags_we_left if t.code == 'c']
+                                mxp_we_left = [t for t in tags_we_left if t.code == 'p']
+                                for i in range(len(tags_we_left)-1):
+                                    tag_stack.pop(-1)
 
-                            except ValueError:
-                                if mxp:
-                                    for ancestor in reversed(ancestors):
-                                        if ancestor.code == 'p':
-                                            out += ancestor.exit_html()
+                                # now that we know what to leave, let's leave them.
+                                if len(ansi_we_left) == len(ansi_stack):
+                                    # we left all ANSI.
+                                    cur_ansi = None
+                                    ansi_stack.clear()
+                                    out += AnsiMarkup.ANSI_RAW_NORMAL
+                                else:
+                                    # we left almost all ANSI...
+                                    for i in range(len(ansi_we_left) - 1):
+                                        ansi_stack.pop(-1)
+                                    cur_ansi = ansi_stack[-1]
+                                    out += AnsiMarkup.ANSI_RAW_NORMAL
+                                    out += cur_ansi.ansi.render(xterm256=xterm256, downgrade=downgrade)
 
-                                    # now we must enter the new MXP ancestors if relevant:
-                                    for ancestor in m.ancestors(reversed=True):
-                                        if ancestor.code == 'p':
-                                            out += ancestor.enter_html()
+                                if len(mxp_we_left) == len(mxp_stack):
+                                    # we left all MXP.
+                                    cur_mxp = None
+                                    mxp_stack.clear()
+                                else:
+                                    for i in range(len(mxp_we_left) - 1):
+                                        mxp_stack.pop(-1)
+                                    cur_mxp = mxp_stack[-1]
+                                for mx in reversed(mxp_we_left):
+                                    out += mx.exit_html()
+
+                            else:
+                                # it's not an ancestor at all, so close out of everything and rebuild.
+                                if ansi_stack:
+                                    out += AnsiMarkup.ANSI_RAW_NORMAL
+                                    ansi_stack.clear()
+                                    cur_ansi = None
+                                if mxp_stack:
+                                    for mx in reversed(mxp_stack):
+                                        out += mx.exit_html()
+                                    mxp_stack.clear()
+                                    cur_mxp = None
+                                tag_stack.clear()
+
+                                # Now to enter the new tag...
+
+                                for ancestor in m.ancestors(reversed=True):
+                                    if ancestor.code == 'p' and mxp:
+                                        mxp_stack.append(ancestor)
+                                    elif ancestor.code == 'c' and ansi:
+                                        ansi_stack.append(ancestor)
+
+                                if m.code == 'p' and mxp:
+                                    mxp_stack.append(m)
+                                elif m.code == 'c' and ansi:
+                                    ansi_stack.append(m)
+
+                                for an in mxp_stack:
+                                    out += an.enter_html()
+                                    cur_mxp = an
+
+                                if ansi_stack:
+                                    cur_ansi = ansi_stack[-1]
+                                    out += cur_ansi.ansi.render(xterm256=xterm256, downgrade=downgrade)
 
                         out += c
                         cur = m
@@ -1141,44 +1182,51 @@ class AnsiString(str):
                     cur = m
                     for ancestor in m.ancestors(reversed=True):
                         if ancestor.code == 'p' and mxp:
-                            out += ancestor.enter_html()
-                    if m.code == 'p' and mxp:
-                        out += m.enter_html()
-                    if m.code == 'c':
-                        out += m.ansi.render(xterm256=xterm256, downgrade=downgrade)
-                        if m.ansi.reset:
-                            cur_ansi = None
-                        else:
-                            cur_ansi = m
+                            mxp_stack.append(ancestor)
+                        elif ancestor.code == 'c' and ansi:
+                            ansi_stack.append(ancestor)
+
+                    if cur.code == 'p' and mxp:
+                        mxp_stack.append(cur)
+                    elif cur.code == 'c' and ansi:
+                        ansi_stack.append(cur)
+
+                    for an in mxp_stack:
+                        out += an.enter_html()
+                        cur_mxp = an
+
+                    if ansi_stack:
+                        cur_ansi = ansi_stack[-1]
+                        out += cur_ansi.ansi.render(xterm256=xterm256, downgrade=downgrade)
+
                     out += c
             else:
                 # we are moving into a None markup...
                 if cur:
-                    if mxp:
-                        for ancestor in cur.ancestors():
-                            if ancestor.code == 'p':
-                                out += ancestor.exit_html()
-                        if cur.code == 'p' and mxp:
-                            out += cur.exit_html()
-                    if cur_ansi:
+                    if ansi_stack:
                         out += AnsiMarkup.ANSI_RAW_NORMAL
+                        ansi_stack.clear()
                         cur_ansi = None
-                    # exit current markup.
-                    cur = m
+
+                    if mxp_stack:
+                        for mx in reversed(mxp_stack):
+                            out += mx.exit_html()
+                        mxp_stack.clear()
+                        cur_mxp = None
+
+                    cur = None
                     out += c
                 else:
                     # from no markup to no markup. Just append the character.
                     out += c
 
-        if cur:
-            if mxp:
-                for ancestor in reversed(cur.ancestors()):
-                    if ancestor.code == 'p':
-                        out += ancestor.exit_html()
-                if cur.code == 'p':
-                    out += cur.exit_html()
-        if cur_ansi:
+        # Finalize and exit all remaining tags.
+        if ansi_stack:
             out += AnsiMarkup.ANSI_RAW_NORMAL
+
+        if mxp_stack:
+            for mx in reversed(mxp_stack):
+                out += mx.exit_html()
 
         return out
 
@@ -1214,7 +1262,8 @@ class AnsiString(str):
                                 out += ancestor.exit()
 
                         except ValueError:
-                            # this is not an ancestor. Exit all ancestors.
+                            # this is not an ancestor. Exit all ancestors and cur.
+                            out += cur.exit()
                             for ancestor in reversed(ancestors):
                                 out += ancestor.exit()
 
@@ -1236,6 +1285,8 @@ class AnsiString(str):
                 if cur:
                     # exit current markup.
                     out += cur.exit()
+                    for ancestor in reversed(cur.ancestors()):
+                        out += ancestor.exit()
                     out += c
                     cur = m
                 else:

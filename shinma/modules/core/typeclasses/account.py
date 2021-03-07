@@ -16,14 +16,14 @@ class AccountTypeClass(BaseTypeClass):
 
     def get_next_cmd_object(self, obj_chain):
         if (conn := obj_chain.get("connection")):
-            return conn.relations.get('playview')
+            return conn.relations.get('connection_playview')
 
     def listeners(self):
         # the listeners of an Account should be all Connections which are
         # logged-in to it at the moment.
 
         # This shouldn't be used much, though...
-        return self.reverse.all('connections')
+        return self.reverse.all('connections_account')
 
     def at_login(self, connection):
         pass

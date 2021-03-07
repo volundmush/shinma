@@ -7,3 +7,4 @@ ujson
 colored
 passlib
 argon2_cffi
+supersqlite

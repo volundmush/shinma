@@ -1,8 +1,9 @@
 import random
 import string
+import re
 from typing import Any, Union
 from collections import defaultdict
-from shinma.utils import lazy_property
+from shinma.utils import lazy_property, partial_match
 from .. gamedb.objects import GameObject
 from .. gamedb.exception import GameObjectException
 from .. mush.ansi import AnsiString
@@ -34,34 +35,51 @@ class RelationHandler:
         self.relations = dict()
 
     def set(self, kind: str, obj):
+        if (found := self.relations.get(kind, None)):
+            if found == obj:
+                return
+            else:
+                found.reverse.remove(kind, self.owner)
         self.relations[kind] = obj
+        obj.reverse.add(kind, self.owner)
 
-    def clear(self, kind):
-        self.relations.pop(kind, None)
+    def clear(self, kind: str):
+        if (found := self.relations.pop(kind, None)):
+            found.reverse.remove(kind, self.owner)
 
-    def get(self, kind):
+    def get(self, kind: str):
         return self.relations.get(kind, None)
+
+    def dump(self):
+        return {k: v.objid for k, v in self.relations.items()}
 
 
 class ReverseHandler:
 
     def __init__(self, owner):
         self.owner = owner
-        self.relations = defaultdict(set)
+        self.relations = defaultdict(list)
 
     def all(self, kind):
         if kind in self.relations:
-            return set(self.relations[kind])
-        return set()
+            return list(self.relations[kind])
+        return list()
 
     def add(self, kind, obj):
-        self.relations[kind].add(obj)
+        exist = self.relations[kind]
+        if obj in exist:
+            return
+        exist.append(obj)
 
     def remove(self, kind, obj):
         if kind in self.relations:
             if obj in self.relations[kind]:
                 self.relations[kind].remove(obj)
 
+    def first(self, kind):
+        if (found := self.relations.get(kind, None)):
+            if found:
+                return found[0]
 
 class MushAttribute:
     def __init__(self, name):
@@ -89,6 +107,7 @@ class MushAttrHandler:
                 attr.owner = owner
             attr.value = AnsiString(v.get('value', ''))
             attr.flags.update(v.get('flags', set()))
+            self.attributes[k.upper()] = attr
 
     def get_create_attr(self, attr: str):
         pass
@@ -130,6 +149,7 @@ class BaseTypeClass(GameObject):
     prefix = "shinmaobject"
     class_initial_data = None
     command_families = set()
+    re_search = re.compile(r"(?i)^(?P<pre>(?P<quant>all|\d+)\.)?(?P<target>[A-Z0-9_.-]+)")
 
     @classmethod
     def generate_id(cls, prefix=None):
@@ -145,7 +165,7 @@ class BaseTypeClass(GameObject):
         return attempt
 
     @classmethod
-    def create(cls, name: str=None, objid=None, prefix=None, initial_data=None):
+    def create(cls, name: str = None, objid=None, prefix=None, initial_data=None, asset=False):
         if objid is None:
             objid = cls.generate_id(prefix)
         if name is None:
@@ -153,7 +173,7 @@ class BaseTypeClass(GameObject):
         if initial_data is None:
             initial_data = cls.class_initial_data
         try:
-            obj = cls(objid, name, initial_data=initial_data)
+            obj = cls(objid, name, initial_data=initial_data, asset=asset)
             cls.core.objects[objid] = obj
             obj.load_initial()
             obj.setup_relations()
@@ -170,7 +190,7 @@ class BaseTypeClass(GameObject):
         return self.name
 
     def listeners(self):
-        return self.reverse.all('contents')
+        return self.reverse.all('location')
 
     def parser(self):
         return Parser(self.core, self.objid, self.objid, self.objid)
@@ -189,11 +209,6 @@ class BaseTypeClass(GameObject):
     def receive_msg(self, message: fmt.FormatList):
         pass
 
-    def location(self):
-        if (loc := self.reverse.get("room_contents", None)):
-            return list(loc)[0]
-        return None
-
     def render_appearance(self, viewer, internal=False):
         parser = viewer.parser()
         out = fmt.FormatList(viewer)
@@ -201,7 +216,7 @@ class BaseTypeClass(GameObject):
             result, remaining, stopped = parser.evaluate(nameformat, executor=self, number_args={0: self.objid, 1: self.name})
             out.add(fmt.Text(result))
         else:
-            out.add(fmt.Text(AnsiString.from_args('hw', self.name) + f"({self.objid})"))
+            out.add(fmt.Text(AnsiString.from_args('hw', self.name) + f" ({self.objid})"))
         if internal and (idesc := self.mush_attr.get_attr_value('IDESCRIBE')):
             idesc_eval, remaining, stopped = parser.evaluate(idesc, executor=self)
             if (idescformat := self.mush_attr.get_attr_value('IDESCFORMAT')):
@@ -216,7 +231,7 @@ class BaseTypeClass(GameObject):
                 out.add(fmt.Text(result))
             else:
                 out.add(fmt.Text(desc_eval))
-        if (contents := self.reverse.all('contents')):
+        if (contents := self.reverse.all('location')):
             if (conformat := self.mush_attr.get_attr_value('CONFORMAT')):
                 contents_objids = ' '.join([con.objid for con in contents])
                 result, remaining, stopped = parser.evaluate(conformat, executor=self, number_args={0: contents_objids})
@@ -280,23 +295,110 @@ class BaseTypeClass(GameObject):
         return RelationHandler(self)
 
     def setup_relations(self):
-        if (objid := self.attributes.get('core', 'parent')):
-            if (obj := self.core.objects.get(objid, None)):
-                obj.children.register(self)
+        if (rel := self.initial_data.get('relations', None)):
+            for k, v in rel.items():
+                if (obj := self.core.objects.get(v, None)):
+                    self.relations.set(k, obj)
 
     def move_to(self, destination, look=False):
-        if (loc := self.relations.get('location')):
-            loc.reverse.remove('contents', self)
         if destination:
-            destination.reverse.add('contents', self)
             self.relations.set('location', destination)
-            self.attributes.set('core', 'location', destination.objid)
             if look:
                 destination.render_appearance(self, internal=True)
         else:
             self.relations.clear('location')
-            self.attributes.delete('core', 'location')
 
     @lazy_property
     def mush_attr(self):
         return MushAttrHandler(self)
+
+    def is_active(self):
+        return True
+
+    def can_see(self, other):
+        if not other.is_active():
+            return False
+        return True
+
+    def generate_identifiers_for(self, other, names=True, aliases=True):
+        out = list()
+        if names:
+            out.extend(other.name.split())
+        if aliases:
+            out.extend(other.aliases)
+        return out
+
+    def search(self, text, candidates, exact=False, names=True, aliases=True, use_objids=False):
+        text_lower = text.lower()
+        if text_lower in ('self', 'me'):
+            return [self]
+        if text_lower in ('here',):
+            return [self.relations.get('location')]
+        if not (candidates := set(candidates)):
+            return []
+        if self in candidates:
+            candidates.remove(self)
+        if not candidates:
+            return []
+
+        if use_objids:
+            objids = {c.objid: c for c in candidates}
+            if (found := objids.get(text, None)):
+                return [found]
+
+        if not (names or aliases):
+            return []
+
+        if not (match := self.re_search.fullmatch(text)):
+            return []
+        gdict = match.groupdict()
+
+        identifiers = defaultdict(list)
+
+        target = gdict['target'].strip('"')
+
+        for can in candidates:
+            for iden in self.generate_identifiers_for(can, names=names, aliases=aliases):
+                ilower = iden.lower()
+                if ilower in ('the', 'of', 'an', 'a', 'or', 'and'):
+                    continue
+                identifiers[iden.lower()].append(can)
+        out = []
+
+        if exact:
+            if (found := identifiers.get(target.lower())):
+                out = found
+            else:
+                return out
+        else:
+            m = partial_match(target, identifiers.keys())
+            if not m:
+                return out
+            out = identifiers[m]
+
+        if (q := gdict.get('quant')):
+            if q == 'all':
+                return out
+            else:
+                q = int(q)
+                if len(out) < q:
+                    l = list()
+                    l.append(out[q-1])
+                else:
+                    return []
+        else:
+            if out:
+                return [out[0]]
+            else:
+                return []
+
+    def dump(self):
+        return {
+            'objid': self.objid,
+            'name': self.name,
+            'aliases': self.aliases,
+            'attributes': self.attributes.dump(),
+            'tags': [t for t in self.tags.keys()],
+            'typeclass': self.typeclass_name,
+            'relations': self.relations.dump()
+        }

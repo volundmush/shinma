@@ -66,6 +66,7 @@ class BaseHeader(BaseFormatter):
                 begin_center = AnsiString.from_args(colors['border'], '<') + col_star
                 end_center = col_star + AnsiString.from_args(colors['border'], '>')
                 center_string = begin_center + ' ' + header_text + ' ' + end_center
+                print(repr(center_string))
 
             else:
                 center_string = " " + AnsiString.from_args(colors['headertext'], header_text) + " "
@@ -87,9 +88,7 @@ class BaseHeader(BaseFormatter):
         if self.edge_character:
             edge_fill = AnsiString.from_args(colors["border"], self.edge_character)
             main_string = center_string
-            final_send = (
-                    edge_fill + left_fill + main_string + right_fill + edge_fill
-            )
+            final_send = edge_fill + left_fill + main_string + right_fill + edge_fill
         else:
             final_send = left_fill + center_string + right_fill
         return final_send

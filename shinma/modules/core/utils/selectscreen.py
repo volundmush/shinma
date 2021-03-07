@@ -3,7 +3,7 @@ from ..mush.ansi import AnsiString
 
 
 def render_select_screen(enactor):
-    acc = enactor.relations.get('account')
+    acc = enactor.relations.get('connection_account')
 
     out = fmt.FormatList(enactor)
     out.add(fmt.Header(f"Account: {acc.name}"))
@@ -18,7 +18,7 @@ def render_select_screen(enactor):
             c2 = c.connection
             t2.add_row(f"{c.name}", f"{c2.protocol}", f"{c2.address}", "", f"{c2.client_name}", f"{c2.width}")
         out.add(t2)
-    if (chars := acc.reverse.all('characters')):
+    if (chars := acc.reverse.all('character_account')):
         out.add(fmt.Subheader("Characters"))
         t3 = fmt.Table("Id", "Name")
         for c in chars:

@@ -11,6 +11,9 @@ class MobileTypeClass(BaseTypeClass):
     command_families = ['mobile']
 
     def listeners(self):
-        if (p := self.relations.get('playview')):
+        if (p := self.reverse.first('playview_puppet')):
             return [p]
         return []
+
+    def is_active(self):
+        return self.relations.first('playview_character') or self.relations.first('playview_puppet')

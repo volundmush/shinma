@@ -16,8 +16,8 @@ class ConnectionTypeClass(BaseTypeClass):
 
     __slots__ = ['connection']
 
-    def __init__(self, objid: str, name: str, initial_data=None):
-        super().__init__(objid, name, initial_data)
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
         self.connection = None
 
     def receive_msg(self, message):
@@ -25,15 +25,14 @@ class ConnectionTypeClass(BaseTypeClass):
             message.send(self)
 
     def get_next_cmd_object(self, obj_chain):
-        return self.relations.get('account')
+        return self.relations.get('connection_account')
 
     def login(self, account):
-        self.relations.set('account', account)
-        account.reverse.add('connections', self)
+        self.relations.set('connection_account', account)
         account.at_login(self)
 
     def logout(self):
-        if (account := self.relations.get('account')):
+        if (account := self.relations.get('connection_account')):
             account.remove_connection(self)
             account.at_logout(self)
 
@@ -44,7 +43,7 @@ class ConnectionTypeClass(BaseTypeClass):
 
     @property
     def style(self):
-        if (acc := self.relations.get('account')):
+        if (acc := self.relations.get('connection_account')):
             return acc.style
         else:
             if (st := self.base_style):
@@ -54,9 +53,7 @@ class ConnectionTypeClass(BaseTypeClass):
                 return self.base_style
 
     def join(self, playview, created: bool = False):
-        playview.reverse.add('connections', self)
-        self.attributes.set('core', 'playview', playview.objid)
-        self.relations.set('playview', playview)
+        self.relations.set('connection_playview', playview)
         if created:
             playview.at_playview_creation(self)
         playview.at_connection_join(self)

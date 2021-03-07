@@ -11,13 +11,13 @@ class PlayViewTypeClass(BaseTypeClass):
     command_families = ['playview']
 
     def get_next_cmd_object(self, obj_chain):
-        return self.relations.get('puppet')
+        return self.relations.get('playview_puppet')
 
     def listeners(self):
-        return self.reverse.all('connections')
+        return self.reverse.all('connection_playview')
 
     def at_connection_join(self, connection):
-        ex = self.relations.get('puppet').objid
+        ex = self.relations.get('playview_puppet').objid
         entry = QueueEntry(enactor=ex, executor=ex, caller=ex, actions='look', split=False)
         self.core.cmdqueue.push(entry)
 
@@ -25,4 +25,4 @@ class PlayViewTypeClass(BaseTypeClass):
         pass
 
     def at_playview_creation(self, connection=None):
-        self.relations.set('puppet', self.relations.get('character'))
+        self.relations.set('playview_puppet', self.relations.get('playview_character'))

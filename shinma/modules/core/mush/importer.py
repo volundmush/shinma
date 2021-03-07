@@ -63,9 +63,13 @@ class Importer:
         if not (obj := self.obj_map.get(dbobj.id, None)):
             obj = self.create_obj(dbobj, mode)
             for k, v in dbobj.attributes.items():
-                owner = self.obj_map.get(v.owner, None)
-                flags = v.flags
-                obj.attributes.set('mush', k, {"owner": owner, "flags": flags, 'value': v.value.encoded()})
+                if k == 'ALIAS':
+                    for a in [a for a in v.value.clean.split(';') if a]:
+                        obj.aliases.append(a)
+                else:
+                    owner = self.obj_map.get(v.owner, None)
+                    flags = v.flags
+                    obj.attributes.set('mush', k, {"owner": owner.objid if owner else None, "flags": list(flags), 'value': v.value.encoded()})
         return obj
 
     def import_grid(self):
@@ -78,9 +82,7 @@ class Importer:
         for k, v in districts.items():
             dbobj = dis_data[k]
             if (parent := self.obj_map.get(dbobj.parent, None)):
-                parent.reverse.add('districts', v)
-                v.relations.set('parent_district', parent)
-                v.attributes.set('core', 'parent_district', parent.objid)
+                v.relations.set('district_parent', parent)
             if (ic := dbobj.get('D`IC', inherit=False)) and ic.value.truthy():
                 v.attributes.set('core', 'ic', True)
 
@@ -91,9 +93,7 @@ class Importer:
         for k, v in room_data.items():
             obj = self.get_or_create_obj(v, 'room')
             if (district := districts.get(v.parent, None)):
-                district.reverse.add('rooms', obj)
-                obj.relations.set('district', district)
-                obj.attributes.set('core', 'district', district.objid)
+                obj.relations.set('room_district', district)
                 room_districts[k] = obj
             else:
                 nodist_room[k] = obj
@@ -110,20 +110,13 @@ class Importer:
             if not (destination := self.obj_map.get(v.location, None)):
                 continue  # No reason to make an Exit for a room that doesn't exist, is there?
             obj = self.get_or_create_obj(v, 'exit')
-            obj.attributes.set('core', 'room', location.objid)
-            obj.relations.set('location', location)
-            location.reverse.add('exits', obj)
-            if (dist := location.relations.get('district')):
-                dist.reverse.add('exits', obj)
-                obj.relations.set('district', dist)
-                obj.attributes.set('core', 'district', dist.objid)
+            obj.relations.set('exits', location)
+            if (dist := location.relations.get('room_district')):
+                obj.relations.set('exit_district', dist)
                 exit_dist[k] = obj
             else:
                 exit_nodist[k] = obj
-
-            obj.attributes.set('core', 'destination', destination.objid)
             obj.relations.set('destination', destination)
-            destination.reverse.add('entrances', obj)
 
             obj.add_tag('penn_exit')
             exit_total[k] = obj
@@ -157,9 +150,7 @@ class Importer:
             obj.attributes.set("core", "penn_hash", v.get('XYXXY').value.clean)
             if (account := self.obj_map.get(v.parent, None)):
                 # Hooray, we have an account!
-                account.reverse.add('characters', obj)
-                obj.attributes.set('core', 'account', account.objid)
-                obj.relations.set('account', account)
+                obj.relations.set('character_account', account)
 
                 if 'WIZARD' in v.flags:
                     if not account.attributes.has('core', 'supervisor_level'):

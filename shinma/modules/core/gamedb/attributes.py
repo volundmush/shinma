@@ -120,3 +120,4 @@ class AttributeHandler:
             return self.categories.keys()
         if (cat := self.categories.get(category, None)):
             return cat.all()
+        return {}

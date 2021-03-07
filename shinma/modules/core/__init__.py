@@ -1,3 +1,4 @@
+import os, pathlib, sys, time
 from collections import defaultdict
 from shinma.utils import import_from_module
 from . gamedb import Module as GameDBModule
@@ -5,6 +6,8 @@ from . cmdqueue import QueueEntry, CmdQueue
 from . commands import connection as LoginCmds, account as AccountCmds, mobile as MobileCmds
 from . utils.welcome import render_welcome_screen
 from . utils.selectscreen import render_select_screen
+from tinydb import TinyDB, Query
+import ujson
 
 
 class Module(GameDBModule):
@@ -35,6 +38,12 @@ class Module(GameDBModule):
         self.functions = dict()
         self.option_classes = dict()
         self.styles = dict()
+
+    def dump(self):
+        f = open('gamedb.json', 'w')
+        data = {k: v.dump() for k, v in self.objects.items()}
+        ujson.dump(data, f)
+        f.close()
 
     def core_typeclasses(self, event, *args, **kwargs):
         typeclasses = kwargs["typeclasses"]
@@ -83,7 +92,6 @@ class Module(GameDBModule):
             else:
                 v.core = self
                 self.typeclasses[k] = v
-
         for k, v in self.engine.settings.CORE_TYPECLASS_MAP.items():
             self.mapped_typeclasses[k] = self.typeclasses[v]
 
@@ -155,6 +163,26 @@ class Module(GameDBModule):
 
         self.option_classes = options
 
+    def load_asset_objects(self):
+        pass
+
+    def load_dynamic_objects(self):
+        if os.path.exists('gamedb.json'):
+            print(f"Loading data...")
+            start = time.time()
+            f = open('gamedb.json', 'r')
+            data = ujson.load(f)
+            f.close()
+            for k, v in data.items():
+                if (typeclass := self.typeclasses.get(v.pop('typeclass', None), None)):
+                    obj = typeclass(objid=v.pop('objid'), name=v.pop('name'), initial_data=v)
+                    self.objects[k] = obj
+                    obj.load_initial()
+            end = time.time()
+            dur = (end - start) * 1000
+            print(f"Loading gamedb took: {dur:.4f} ms")
+
+
     def core_options(self, event, *args, **kwargs):
         options = kwargs["options"]
         from .utils import optionclasses as o
@@ -171,18 +199,18 @@ class Module(GameDBModule):
         options['Future'] = o.Future
         options['Lock'] = o.Lock
 
-
     def setup(self):
         self.load_typeclasses()
         self.load_cmdfamilies()
         self.load_functions()
         self.load_options()
         self.load_styles()
+        self.load_asset_objects()
+        self.load_dynamic_objects()
 
         self.welcomescreen = self.engine.settings.CORE_WELCOMESCREEN
         if isinstance(self.welcomescreen, str):
             self.welcomescreen = import_from_module(self.welcomescreen)
-
 
         self.selectscreen = self.engine.settings.CORE_SELECTSCREEN
         if isinstance(self.selectscreen, str):

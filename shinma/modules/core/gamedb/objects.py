@@ -4,13 +4,15 @@ from . exception import GameObjectException
 
 class GameObject:
     core = None
-    __slots__ = ["name", "objid", "tags", "attributes", "initial_data"]
+    __slots__ = ["name", "objid", "tags", "attributes", "initial_data", "aliases", "asset"]
 
-    def __init__(self, objid: str, name: str, initial_data=None):
+    def __init__(self, objid: str, name: str, initial_data=None, asset: bool = False):
         self.name = name
+        self.aliases = list()
         self.objid = objid
         self.attributes = AttributeHandler(self)
         self.tags = dict()
+        self.asset = asset
         if initial_data is not None:
             self.initial_data = initial_data
         else:
@@ -38,7 +40,6 @@ class GameObject:
             "attributes": self.attributes.dump(),
             "tags": self.tags.keys()
         }, self.initial_data)
-
 
     def delete(self):
         for tag in self.tags.values():

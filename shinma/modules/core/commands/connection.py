@@ -37,11 +37,11 @@ class ConnectCommand(_LoginCommand):
         name, password = self.parse_login(self.usage)
         account, error = self.core.search_tag("account", name, exact=True)
         if error:
-            raise CommandException("Sorry, that was an incorrect username or password. (account search failed)")
+            raise CommandException("Sorry, that was an incorrect username or password.")
         if not account:
-            raise CommandException("Sorry, that was an incorrect username or password. (account not found)")
+            raise CommandException("Sorry, that was an incorrect username or password.")
         if not account.verify_password(password):
-            raise CommandException("Sorry, that was an incorrect username or password. (hash failed)")
+            raise CommandException("Sorry, that was an incorrect username or password.")
         self.enactor.login(account)
         self.core.selectscreen(self.enactor)
 
@@ -88,20 +88,20 @@ class PennConnect(_LoginCommand):
         name, password = self.parse_login(self.usage)
         character, error = self.core.search_tag("penn_character", name, exact=True)
         if error:
-            raise CommandException("Sorry, that was an incorrect username or password. (character search failed)")
+            raise CommandException("Sorry, that was an incorrect username or password.")
         if not character:
-            raise CommandException("Sorry, that was an incorrect username or password. (character not found)")
+            raise CommandException("Sorry, that was an incorrect username or password.")
         if not (old_hash := character.attributes.get('core', 'penn_hash')):
-            raise CommandException("Sorry, that was an incorrect username or password. (character has no old_hash)")
+            raise CommandException("Sorry, that was an incorrect username or password.")
         if not check_password(old_hash, password):
-            raise CommandException("Sorry, that was an incorrect username or password. (hash failed)")
-        if not (acc := character.relations.get('account')):
+            raise CommandException("Sorry, that was an incorrect username or password.")
+        if not (acc := character.relations.get('character_account')):
             raise CommandException("Character found! However this character has no account. To continue, create an account and bind the character after logging in.")
         self.enactor.login(acc)
         self.core.selectscreen(self.enactor)
         self.msg(text=f"Your Account password has been set to the password you entered just now. Next time, you can login using the normal connect command. pconnect will not work on your currently bound characters again.")
         acc.set_password(password)
-        for char in acc.reverse.all('characters'):
+        for char in acc.reverse.all('character_account'):
             char.attributes.delete('core', 'penn_hash')
 
 
@@ -116,7 +116,7 @@ class CharCreateCommand(Command):
         char, error = self.core.mapped_typeclasses["mobile"].create(name=name)
         if error:
             raise CommandException(error)
-        acc = self.enactor.relations.get('account')
+        acc = self.enactor.relations.get('connection_account')
         acc.reverse.add("characters", char)
         char.attributes.set('core', 'account', acc)
         char.relations.set('account', acc)
@@ -124,13 +124,13 @@ class CharCreateCommand(Command):
 
 
 class CharSelectCommand(Command):
-    name = "@charselect"
-    re_match = re.compile(r"^(?P<cmd>@charselect)(?: +(?P<args>.+)?)?", flags=re.IGNORECASE)
+    name = "@ic"
+    re_match = re.compile(r"^(?P<cmd>@ic)(?: +(?P<args>.+)?)?", flags=re.IGNORECASE)
 
     def execute(self):
         mdict = self.match_obj.groupdict()
-        acc = self.enactor.relations.get('account')
-        if not (chars := acc.reverse.all('characters')):
+        acc = self.enactor.relations.get('connection_account')
+        if not (chars := acc.reverse.all('character_account')):
             raise CommandException("No characters to join the game as!")
         if not (args := mdict.get("args", None)):
             names = ', '.join([obj.name for obj in chars])
@@ -140,15 +140,12 @@ class CharSelectCommand(Command):
             self.msg(text=f"Sorry, no character found named: {args}")
             return
         created = False
-        if not (pview := found.relations.get('playview')):
+        if not (pview := found.reverse.first('playview_character')):
             pview, errors = self.core.mapped_typeclasses['playview'].create(objid=f"playview_{found.objid}")
             if errors:
                 raise CommandException(errors)
             created = True
-            found.relations.set('playview', pview)
-            found.attributes.set('core', 'playview', pview.objid)
-            pview.relations.set('character', found)
-            pview.attributes.set('core', 'character', found.objid)
+            pview.relations.set('playview_character', found)
         self.enactor.join(pview, created)
 
 
@@ -301,7 +298,7 @@ class PyCommand(Command):
 class LoginCommandMatcher(PythonCommandMatcher):
 
     def access(self, enactor):
-        return enactor.relations.get('account') is None
+        return enactor.relations.get('connection_account') is None
 
     def at_cmdmatcher_creation(self):
         self.add(CreateCommand)
@@ -314,7 +311,7 @@ class LoginCommandMatcher(PythonCommandMatcher):
 class SelectCommandMatcher(PythonCommandMatcher):
 
     def access(self, enactor):
-        return enactor.relations.get('account') and not enactor.relations.get('playview')
+        return enactor.relations.get('connection_account') and not enactor.relations.get('connection_playview')
 
     def at_cmdmatcher_creation(self):
         self.add(CharSelectCommand)

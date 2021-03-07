@@ -1,5 +1,4 @@
 from . base import MushCommand, CommandException, PythonCommandMatcher, BaseCommandMatcher, Command
-from shinma.utils import partial_match
 from ..utils import formatter as fmt
 
 
@@ -11,8 +10,11 @@ class LookCommand(MushCommand):
         if self.args:
             arg = self.gather_arg()
             if len(arg):
-                if (found := self.enactor.locate(arg)):
-                    self.look_at(found)
+                loc = self.enactor.relations.get('location')
+                candidates = loc.reverse.all('contents') if loc else []
+                if (found := self.enactor.search(arg.clean, candidates)):
+                    for f in found:
+                        self.look_at(f)
                 else:
                     raise CommandException("I don't see that here.")
             else:
@@ -25,9 +27,9 @@ class LookCommand(MushCommand):
             if loc == target:
                 loc.render_appearance(self.enactor, internal=True)
             else:
-                loc.render_appearance(self.enactor)
+                target.render_appearance(self.enactor)
         else:
-            loc.render_appearance(self.enactor)
+            target.render_appearance(self.enactor)
 
     def look_here(self):
         if (loc := self.enactor.relations.get('location')):
@@ -37,6 +39,7 @@ class LookCommand(MushCommand):
 
 
 class MobileCommandMatcher(PythonCommandMatcher):
+    priority = 10
 
     def at_cmdmatcher_creation(self):
         self.add(LookCommand)
@@ -64,13 +67,21 @@ class ExitCommand(Command):
 
 
 class MobileExitMatcher(BaseCommandMatcher):
+    priority = 110
 
     def match(self, enactor, text, obj_chain):
         if not (loc := enactor.relations.get('location')):
             return
-        if not (exits := loc.reverse.all('exits')):
+        if not (exits := [e for e in loc.reverse.all('exits') if enactor.can_see(e)]):
             return
-        if not (found := partial_match(text, exits, key=lambda x: x.name)):
-            return
-        cmd = ExitCommand(enactor, found, self, obj_chain)
-        return cmd
+
+        if text.lower().startswith('goto '):
+            text = text[5:]
+        elif text.lower().startswith('go '):
+            text = text[3:]
+
+        if text:
+            if not (found := enactor.search(text, exits)):
+                return
+            cmd = ExitCommand(enactor, found[0], self, obj_chain)
+            return cmd
