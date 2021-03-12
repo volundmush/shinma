@@ -1,4 +1,4 @@
-import os, pathlib, sys, time, re
+import os, pathlib, sys, time, re, weakref
 from collections import defaultdict
 from shinma.utils import import_from_module, partial_match
 from . gamedb import Module as GameDBModule
@@ -8,17 +8,23 @@ from . utils.welcome import render_welcome_screen
 from . utils.selectscreen import render_select_screen
 import ujson
 
+REG_BASIC_NAME = re.compile(r"(?s)^(\w|\.|-| |')+$")
+REG_EMAIL_NAME = re.compile(r"(?s)^(\w|\.|-| |'|@)+$")
+
 
 class Identity:
-    re_name = re.compile(r"(?s)^(\w|\.|-| |'|@)+$")
 
-    def __init__(self, core, name, prefix, priority=0):
+    def __init__(self, core, name, prefix, reg=None, priority=0):
         self.core = core
         self.name = name
         self.prefix = prefix
         self.priority = priority
-        self.objects = set()
-        self.aliases = dict()
+        if reg is None:
+            self.reg = REG_BASIC_NAME
+        else:
+            self.reg = reg
+        self.objects = weakref.WeakSet()
+        self.aliases = weakref.WeakValueDictionary()
 
     def search(self, name, aliases=True, exact=False):
         name_lower = name.lower()
@@ -35,9 +41,8 @@ class Identity:
                 return found, None
         return None, f"Sorry, nothing matches: {name}"
 
-
     def valid(self, name: str):
-        return self.re_name.match(name)
+        return self.reg.match(name)
 
     def available(self, name: str, exclude=None):
         for obj in self.objects:
@@ -51,7 +56,6 @@ class Identity:
             if k.lower() == name.lower():
                 return False
         return True
-
 
 
 class Module(GameDBModule):
@@ -121,7 +125,6 @@ class Module(GameDBModule):
         }
         settings.CORE_WELCOMESCREEN = render_welcome_screen
         settings.CORE_SELECTSCREEN = render_select_screen
-
 
     def search_tag(self, tagname, text, exact=False):
         tag = self.get_tag(tagname)
@@ -198,7 +201,6 @@ class Module(GameDBModule):
         system.update(system_default)
         styles['system'] = system
 
-
     def load_styles(self):
         styles = dict()
         self.engine.dispatch_module_event("core_load_styles", styles=styles)
@@ -207,7 +209,6 @@ class Module(GameDBModule):
     def load_options(self):
         options = dict()
         self.engine.dispatch_module_event("core_load_options", options=options)
-
         self.option_classes = options
 
     def load_asset_objects(self):
@@ -264,7 +265,6 @@ class Module(GameDBModule):
                 dist.rooms.add(obj)
                 obj.relations['district'] = obj
 
-
         if obj.typeclass_family == 'mobile':
             if (acc := self.objects.get(obj.attributes.get('core', 'account'), None)):
                 acc.characters.add(obj)
@@ -287,7 +287,8 @@ class Module(GameDBModule):
         identities['account'] = {
             'prefix': 'A',
             'description': 'For Accounts',
-            'priority': 10
+            'priority': 10,
+            'reg': REG_EMAIL_NAME
         }
         identities['character'] = {
             'prefix': 'C',
@@ -315,7 +316,7 @@ class Module(GameDBModule):
         self.engine.dispatch_module_event('core_load_identities', identities=identities)
 
         for k, v in identities.items():
-            iden = Identity(self, k, prefix=v['prefix'], priority=v.get('priority', 0))
+            iden = Identity(self, k, prefix=v['prefix'], priority=v.get('priority', 0), reg=v.get('reg', None))
             self.identities[k] = iden
             self.identity_prefix[iden.prefix] = iden
 
@@ -357,15 +358,29 @@ class Module(GameDBModule):
             self.welcomescreen(obj)
 
     def net_client_command(self, event, *args, **kwargs):
-        conn = kwargs["connection"]
-        entry = QueueEntry(enactor=conn.name, executor=conn.name, caller=conn.name, actions=kwargs["text"], split=False)
-        self.cmdqueue.push(entry)
+        if (conn := self.objects.get(kwargs["connection"].name, None)):
+            text = kwargs['text']
+            if text == 'IDLE':
+                return
+            t = time.time()
+            conn.attributes.set('core', 'last_cmd', t)
+            if (acc := conn.relations.get('account', None)):
+                acc.attributes.set('core', 'last_cmd', t)
+            if (play := conn.relations.get('playview', None)):
+                play.attributes.set('core', 'last_cmd', t)
+            entry = QueueEntry(enactor=conn.name, executor=conn.name, caller=conn.name, actions=kwargs["text"], split=False)
+            self.cmdqueue.push(entry)
 
     def net_client_gmcp(self, event, *args, **kwargs):
         pass
 
     def net_client_disconnected(self, event, *args, **kwargs):
-        pass
+        if (conn := self.objects.get(kwargs["connection"].name, None)):
+            conn.close_connection(reason="lost connection")
+
+    def delete(self, obj):
+        self.objects.pop(obj.objid, None)
+        obj.delete()
 
     def net_client_reconfigured(self, event, *args, **kwargs):
         pass

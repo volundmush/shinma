@@ -642,14 +642,22 @@ class AnsiString(str):
     def __len__(self):
         return len(self.clean)
 
+    def __eq__(self, other):
+        if isinstance(other, str):
+            return self.clean == other
+        if isinstance(other, AnsiString):
+            return self.clean == other.clean
+        return False
+
     def __getitem__(self, item):
+        if isinstance(item, int):
+            sliced = list()
+            sliced.append(self.markup_idx_map[item])
+        else:
+            sliced = self.markup_idx_map[item]
         out = self.clone()
-        out.markup_idx_map = self.markup_idx_map.__getitem__(item)
-        out.clean = out.clean.__getitem__(item)
-        if len(out.clean) == 0:
-            out.markup_idx_map = list()
-        elif len(out.clean) == 1:
-            out.markup_idx_map = [out.markup_idx_map]
+        out.markup_idx_map = sliced
+        out.regen_clean()
         return out
 
     def __str__(self):
@@ -714,7 +722,7 @@ class AnsiString(str):
         if not isinstance(other, int):
             return self
         if other == 0:
-            return AnsiString('')
+            return AnsiString()
         n = self.clone()
         if other == 1:
             return n
@@ -730,49 +738,38 @@ class AnsiString(str):
         return self * other
 
     def __add__(self, other):
-        if isinstance(other, AnsiString):
-            n = self.clone()
-            n.markup_idx_map.extend(other.markup_idx_map)
-            n.regen_clean()
-            return n
-        elif isinstance(other, str):
-            if not self.clean:
-                return AnsiString(other)
-            else:
-                n = self.clone()
-                for i, char in enumerate(other):
-                    n.markup_idx_map.append((None, char))
-                n.clean += other
-                return n
+        if not len(other):
+            return self.clone()
+        if not isinstance(other, AnsiString):
+            other = AnsiString(other)
+        n = self.clone()
+        n.markup_idx_map.extend(other.markup_idx_map)
+        n.regen_clean()
+        return n
 
     def __iadd__(self, other):
+        if not len(other):
+            return self
         if isinstance(other, AnsiString):
             self.markup_idx_map.extend(other.markup_idx_map)
             self.regen_clean()
             return self
         elif isinstance(other, str):
-            for i, char in enumerate(other):
-                self.markup_idx_map.append((None, char))
+            self.markup_idx_map.extend([(None, c) for c in list(other)])
             self.clean += other
             return self
 
     def __radd__(self, other):
-        if isinstance(other, str):
-            n = self.clone()
-            old_map = n.markup_idx_map
-            prefix = list()
-            for i, c in enumerate(other):
-                prefix.append((None, c))
-            n.markup_idx_map = prefix
-            n.markup_idx_map.extend(old_map)
-            n.regen_clean()
-            return n
+        return AnsiString(other) + self
 
     def __repr__(self):
         return f"<AnsiString({repr(self.encoded())})>"
 
     def regen_clean(self):
-        self.clean = ''.join(t[1] for t in self.markup_idx_map)
+        if self.markup_idx_map:
+            self.clean = ''.join([t[1] for t in self.markup_idx_map])
+        else:
+            self.clean = ''
 
     def clone(self):
         other = self.__class__()
@@ -828,7 +825,6 @@ class AnsiString(str):
             if i+1 < total:
                 out_tuples.extend(separator)
         return AnsiString.from_tuples(out_tuples)
-
 
     def capitalize(self):
         other = self.clone()
@@ -908,6 +904,23 @@ class AnsiString(str):
         other.clean = lstripped
         other.source = other.encoded()
         return other
+
+    def strip(self, chars: str = ' '):
+        out_map = list(self.markup_idx_map)
+        for i, e in enumerate(out_map):
+            if e[1] != chars:
+                out_map = out_map[i:]
+                break
+        out_map.reverse()
+        for i, e in enumerate(out_map):
+            if e[1] != chars:
+                out_map = out_map[i:]
+                break
+        out_map.reverse()
+        out = self.clone()
+        out.markup_idx_map = out_map
+        out.regen_clean()
+        return out
 
     def replace(self, old: str, new: str, count=None):
         if not (indexes := self.find_all(old)):

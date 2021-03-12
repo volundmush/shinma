@@ -1,6 +1,5 @@
 import time
 from . base import BaseTypeClass, ReverseHandler
-from ..cmdqueue import QueueEntry
 from shinma.utils import lazy_property
 
 
@@ -47,3 +46,14 @@ class PlayViewTypeClass(BaseTypeClass):
             char.attributes.set('core', 'logout_location', loc.objid)
             char.move_to(destination=None, look=False)
             loc.msg(text=f"{char.name} has left the game.")
+
+    def time_idle(self):
+        if (conn := self.connections.all()):
+            if (ti := self.attributes.get('core', 'last_cmd')):
+                return time.time() - ti
+        return -1
+
+    def time_connected(self):
+        if (conn := self.connections.all()):
+            return time.time() - self.attributes.get('core', 'datetime_created')
+        return -1

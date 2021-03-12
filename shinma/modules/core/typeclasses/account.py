@@ -1,3 +1,4 @@
+import time
 from . base import BaseTypeClass, ReverseHandler
 from passlib.context import CryptContext
 from ..utils.styling import StyleHandler
@@ -25,12 +26,6 @@ class AccountTypeClass(BaseTypeClass):
         # This shouldn't be used much, though...
         return self.connections.all()
 
-    def at_login(self, connection):
-        pass
-
-    def at_logout(self, connection):
-        pass
-
     def set_password(self, text, nohash=False):
         if not nohash:
             text = CRYPT_CON.hash(text)
@@ -53,3 +48,14 @@ class AccountTypeClass(BaseTypeClass):
     @lazy_property
     def connections(self):
         return ReverseHandler(self, 'core', 'account', 'account')
+
+    def time_idle(self):
+        if (conn := self.connections.all()):
+            if (ti := self.attributes.get('core', 'last_cmd')):
+                return time.time() - ti
+        return -1
+
+    def time_connected(self):
+        if (conn := self.connections.all()):
+            return max(o.time_connected() for o in conn)
+        return -1

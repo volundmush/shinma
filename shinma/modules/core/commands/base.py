@@ -1,5 +1,5 @@
-from asyncio import Queue
 import re
+from ..utils import formatter as fmt
 
 
 class CommandException(Exception):
@@ -9,6 +9,7 @@ class CommandException(Exception):
 class Command:
     name = None  # Name must be set to a string!
     aliases = []
+    help_category = None
 
     @classmethod
     def access(cls, enactor):
@@ -25,7 +26,14 @@ class Command:
         """
         This is called by the command-help system if help is called on this command.
         """
-        return "Help is not implemented for this command."
+        if cls.__doc__:
+            out = fmt.FormatList(enactor)
+            out.add(fmt.Header(f"Help: {cls.name}"))
+            out.add(fmt.Text(cls.__doc__))
+            out.add(fmt.Footer())
+            enactor.send(out)
+        else:
+            enactor.msg(text="Help is not implemented for this command.")
 
     @classmethod
     def match(cls, enactor, text):
@@ -134,6 +142,9 @@ class BaseCommandMatcher:
     def match(self, enactor, text, obj_chain):
         pass
 
+    def populate_help(self, enactor, data):
+        pass
+
     def __repr__(self):
         return f"<{self.__class__.__name__}: {self.name}>"
 
@@ -152,3 +163,8 @@ class PythonCommandMatcher(BaseCommandMatcher):
             if cmd.access(enactor) and (result := cmd.match(enactor, text)):
                 obj_chain[enactor.typeclass_name] = self
                 return cmd(enactor, result, self, obj_chain)
+
+    def populate_help(self, enactor, data):
+        for cmd in self.cmds:
+            if cmd.help_category and cmd.access(enactor):
+                data[cmd.help_category].add(cmd)

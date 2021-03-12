@@ -8,6 +8,8 @@ from ..mush.ansi import AnsiString
 from ..typeclasses.account import CRYPT_CON
 from ..mush.importer import Importer
 from ..mush.flatfile import check_password
+from ..utils import formatter as fmt
+from . help import HelpCommand
 
 
 class _LoginCommand(Command):
@@ -17,6 +19,7 @@ class _LoginCommand(Command):
     """
     re_quoted = re.compile(r'"(?P<name>.+)"(: +(?P<password>.+)?)?', flags=re.IGNORECASE)
     re_unquoted = re.compile(r'^(?P<name>\S+)(?: +(?P<password>.+)?)?', flags=re.IGNORECASE)
+    help_category = 'Login'
 
     def parse_login(self, error):
         mdict = self.match_obj.groupdict()
@@ -33,6 +36,15 @@ class _LoginCommand(Command):
 
 
 class ConnectCommand(_LoginCommand):
+    """
+    Logs in to an existing Account.
+
+    Usage:
+        connect <username> <password>
+
+    If username contains spaces:
+        connect "<user name>" <password>
+    """
     name = "connect"
     re_match = re.compile(r"^(?P<cmd>connect)(?: +(?P<args>.+))?", flags=re.IGNORECASE)
     usage = "Usage: " + AnsiString.from_args("hw", "connect <username> <password>") + " or " + AnsiString.from_args("hw", 'connect "<user name>" password')
@@ -51,6 +63,15 @@ class ConnectCommand(_LoginCommand):
 
 
 class CreateCommand(_LoginCommand):
+    """
+    Creates a new Account.
+
+    Usage:
+        create <username> <password>
+
+    If username contains spaces:
+        create "<user name>" <password>
+    """
     name = "create"
     re_match = re.compile(r"^(?P<cmd>create)(?: +(?P<args>.+)?)?", flags=re.IGNORECASE)
     usage = "Usage: " + AnsiString.from_args("hw", 'create <username> <password>') + ' or ' + AnsiString.from_args("hw", 'create "<user name>" <password>')
@@ -76,24 +97,39 @@ class WelcomeScreenCommand(_LoginCommand):
         self.core.welcomescreen(self.enactor)
 
 
-class HelpCommand(_LoginCommand):
-    name = "help"
-    re_match = re.compile(r"^(?P<cmd>help)(?: +(?P<args>.+)?)?", flags=re.IGNORECASE)
-
-    def execute(self):
-        self.msg(text="Pretend I'm showing some help here.")
-
-
 class QuitCommand(Command):
+    """
+    Disconnects this connection from the game.
+    """
     name = 'QUIT'
     re_match = re.compile(r"^(?P<cmd>QUIT)(?: +(?P<args>.+)?)?", flags=re.IGNORECASE)
+    help_category = 'System'
 
     def execute(self):
-        self.msg(text="See you again!")
-        self.enactor.close_connection(reason='quit')
+        if (pview := self.enactor.relations.get('playview', None)):
+            mdict = self.match_obj.groupdict()
+            args = mdict.get('args', "")
+            if args is None or not args.upper().startswith('FORCE'):
+                raise CommandException("Use QUIT FORCE to disconnect while IC. This may leave your character linkdead for a time. Use @ooc then QUIT to cleanly logout.")
+        out = fmt.FormatList(self.enactor)
+        out.add(fmt.Text("See you again!"))
+        out.disconnect = True
+        out.reason = 'quit'
+        self.enactor.send(out)
 
 
 class PennConnect(_LoginCommand):
+    """
+    This command will access a PennMUSH character and login using their
+    old password. This will then initialize the imported Account and
+    log you in.
+
+    Usage:
+        pconnect <character> <password>
+
+    If a character name contains spaces, then:
+        pconnect "<character name>" password
+    """
     name = 'pconnect'
     re_match = re.compile(r"^(?P<cmd>pconnect)(?: +(?P<args>.+))?", flags=re.IGNORECASE)
     usage = "Usage: " + AnsiString.from_args("hw", "pconnect <username> <password>") + " or " + AnsiString.from_args("hw", 'pconnect "<user name>" password')
@@ -119,9 +155,45 @@ class PennConnect(_LoginCommand):
             char.attributes.delete('core', 'penn_hash')
 
 
+class PennBindCommand(MushCommand):
+    """
+    Binds a character imported from PennMUSH to an Account. This is
+    mostly useful for cases where a character never had an Account
+    before the game was migrated.
+
+    Usage:
+        @pbind <name>=<password>
+    """
+    name = '@pbind'
+    aliases = ['@pbi', '@pbin']
+    help_category = 'Character Management'
+
+    def execute(self):
+        target = self.gather_arg()
+        password = self.gather_arg()
+        if not (target and password):
+            raise CommandException("Usage: @pbind <name>=<password>")
+        character, error = self.core.search_tag("penn_character", target, exact=True)
+        if error:
+            raise CommandException("Sorry, that was an incorrect username or password.")
+        if not character:
+            raise CommandException("Sorry, that was an incorrect username or password.")
+        if not (old_hash := character.attributes.get('core', 'penn_hash')):
+            raise CommandException("Sorry, that was an incorrect username or password.")
+        if not check_password(old_hash, password):
+            raise CommandException("Sorry, that was an incorrect username or password.")
+        if character.relations.get('account', None):
+            raise CommandException("Sorry, that character belongs to an account. use pconnect to access them from the connect screen.")
+        acc = self.enactor.relations.get('account', None)
+        acc.characters.add(character)
+        character.attributes.delete('core', 'penn_hash')
+        self.msg(text=f"Character bound to your account!")
+
+
 class CharCreateCommand(Command):
     name = "@charcreate"
     re_match = re.compile(r"^(?P<cmd>@charcreate)(?: +(?P<args>.+)?)?", flags=re.IGNORECASE)
+    help_category = 'Character Management'
 
     def execute(self):
         mdict = self.match_obj.groupdict()
@@ -139,6 +211,7 @@ class CharCreateCommand(Command):
 class CharSelectCommand(Command):
     name = "@ic"
     re_match = re.compile(r"^(?P<cmd>@ic)(?: +(?P<args>.+)?)?", flags=re.IGNORECASE)
+    help_category = 'Character Management'
 
     def execute(self):
         mdict = self.match_obj.groupdict()
@@ -173,6 +246,7 @@ class SelectScreenCommand(Command):
 class ThinkCommand(MushCommand):
     name = "think"
     aliases = ['th', 'thi', 'thin']
+    help_category = 'System'
 
     def execute(self):
         if self.args:
@@ -184,6 +258,7 @@ class ThinkCommand(MushCommand):
 class ImportCommand(Command):
     name = "@import"
     re_match = re.compile(r"^(?P<cmd>@import)(?: +(?P<args>.+)?)?", flags=re.IGNORECASE)
+    help_category = 'System'
 
     def execute(self):
         mdict = self.match_obj.groupdict()
@@ -228,6 +303,7 @@ class ImportCommand(Command):
 class PyCommand(Command):
     name = '@py'
     re_match = re.compile(r"^(?P<cmd>@py)(?: +(?P<args>.+)?)?", flags=re.IGNORECASE)
+    help_category = 'System'
 
     def execute(self):
         mdict = self.match_obj.groupdict()
@@ -316,10 +392,8 @@ class LoginCommandMatcher(PythonCommandMatcher):
     def at_cmdmatcher_creation(self):
         self.add(CreateCommand)
         self.add(ConnectCommand)
-        self.add(HelpCommand)
         self.add(WelcomeScreenCommand)
         self.add(PennConnect)
-        self.add(QuitCommand)
 
 
 class SelectCommandMatcher(PythonCommandMatcher):
@@ -332,7 +406,6 @@ class SelectCommandMatcher(PythonCommandMatcher):
         self.add(CharCreateCommand)
         self.add(SelectScreenCommand)
         self.add(ThinkCommand)
-        self.add(QuitCommand)
 
 
 class ConnectionCommandMatcher(PythonCommandMatcher):
@@ -340,3 +413,5 @@ class ConnectionCommandMatcher(PythonCommandMatcher):
     def at_cmdmatcher_creation(self):
         self.add(PyCommand)
         self.add(ImportCommand)
+        self.add(QuitCommand)
+        self.add(HelpCommand)

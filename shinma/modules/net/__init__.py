@@ -149,10 +149,14 @@ class Connection:
                 print(f"Exception on {self} Incoming: {e}")
 
     async def process_outgoing(self):
-        while True:
+        running = True
+        while running:
             try:
                 msg = await self.outgoing_queue.get()
                 await self.module.outgoing_queue.put(msg)
+                if msg.get('kind', '') == "session_disconnected":
+                    running = False
+                    self.stop()
             except Exception as e:
                 print(f"Exception on {self} Outgoing: {e}")
 
@@ -169,12 +173,22 @@ class Connection:
                 "id": self.name,
                 "line": text
             })
+        dis = None
+        if 'disconnect' in data:
+            dis = data.pop('disconnect', 'quit')
+            if dis is None:
+                dis = 'quit'
+
         if self.oob():
             for cmd, value in data.items():
                 if isinstance(value, tuple) and len(value) >= 2:
                     args = value[0]
                     kwargs = value[1]
                     # deal with the rest of this later...
+        if dis:
+            self.outgoing_queue.put_nowait({'kind': 'session_disconnected',
+                                            'id': self.name,
+                                            'reason': dis})
 
 
 class Module(ShinmaModule):
@@ -206,8 +220,7 @@ class Module(ShinmaModule):
         if not (conn := self.connections.get(kwargs["id"])):
             return
         conn.stop()
-        del self.connections[conn.name]
-        self.outgoing_queue.put_nowait({"kind": "client_disconnected", "id": kwargs["id"],
+        self.outgoing_queue.put_nowait({"kind": "session_disconnected", "id": kwargs["id"],
                                        "reason": kwargs.get("reason", "")})
 
     def net_connection_data(self, event, *args, **kwargs):

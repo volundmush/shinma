@@ -2,6 +2,7 @@ import random
 import string
 import re
 import time
+import weakref
 from typing import Any, Union
 from collections import defaultdict
 from shinma.utils import lazy_property, partial_match
@@ -48,7 +49,7 @@ class ReverseHandler:
         self.category = category
         self.attr = attr
         self.rel = rel
-        self.relations = set()
+        self.relations = weakref.WeakSet()
 
     def all(self):
         return list(self.relations)
@@ -250,6 +251,15 @@ class BaseTypeClass(GameObject):
             results = results.union(self.core.cmdfamilies.get(fam, []))
         results = [matcher for matcher in results if matcher.access(self)]
         return sorted(results, key=lambda g: getattr(g, "priority", 0))
+
+    def get_full_chain(self):
+        chain = {self.typeclass_family: self}
+        obj = self
+        while obj is not None:
+            obj = obj.get_next_cmd_object(chain)
+            if obj:
+                chain[obj.typeclass_family] = obj
+        return chain
 
     def get_next_cmd_object(self, obj_chain):
         return None

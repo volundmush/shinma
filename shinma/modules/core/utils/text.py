@@ -225,3 +225,76 @@ class Speech:
 
 def iter_to_string(iter):
     return ', '.join(str(i) for i in iter)
+
+
+def duration_format(duration: int, width: int = 999999999):
+    years = duration // 31536000
+    if years:
+        duration -= years * 31536000
+
+    weeks = duration // 604800
+    if weeks:
+        duration -= weeks * 604800
+
+    days = duration // 86400
+    if days:
+        duration -= days * 86400
+
+    hours = duration // 3600
+    if hours:
+        duration -= hours * 3600
+
+    minutes = duration // 60
+    if minutes:
+        duration -= minutes * 60
+
+    seconds = duration
+
+    out_list = list()
+    if years:
+        out_list.append(f"{years}y")
+    if weeks:
+        out_list.append(f"{weeks}w")
+    if days:
+        out_list.append(f"{days}d")
+    if hours:
+        out_list.append(f"{hours}h")
+    if minutes:
+        out_list.append(f"{minutes}m")
+    if seconds or not out_list:
+        out_list.append(f"{seconds}s")
+
+    remaining = width
+
+    out = ''
+    for i, section in enumerate(out_list):
+        if i == 0:
+            out = section
+            remaining -= len(section)
+        else:
+            if len(section)+1 <= remaining:
+                out += f" {section}"
+                remaining -= len(section)+1
+            else:
+                break
+    return out
+
+
+def red_yellow_green(number: int = 0):
+    blue = 0
+
+    if number > 50:
+        red = 255
+        green = (255 * 2) - int(255 * ((number * 2) / 100))
+    else:
+        red = int(255 * ((number * 2) / 100))
+        green = 255
+
+    return f"<{red} {green} {blue}>"
+
+
+def percent_cap(number: int = 0, of: int = 0):
+    div = number / of
+    if div >= 1:
+        return 100
+    return int(div * 100)

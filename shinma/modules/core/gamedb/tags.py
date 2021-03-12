@@ -1,10 +1,13 @@
+import weakref
+
+
 class Tag:
     __slots__ = ["manager", "name", "objects"]
 
     def __init__(self, manager, name):
         self.manager = manager
         self.name = name
-        self.objects = set()
+        self.objects = weakref.WeakSet()
 
     def search(self, name, exact=False):
         upper = name.upper()

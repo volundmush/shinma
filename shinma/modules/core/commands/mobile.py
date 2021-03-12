@@ -5,6 +5,7 @@ from ..utils import formatter as fmt
 class LookCommand(MushCommand):
     name = 'look'
     aliases = ['l', 'lo', 'loo']
+    help_category = 'Interaction'
 
     def execute(self):
         if self.args:
@@ -46,7 +47,8 @@ class MobileCommandMatcher(PythonCommandMatcher):
 
 
 class ExitCommand(Command):
-    name = 'EXIT_CMD'
+    name = 'goto'
+    help_category = 'Navigation'
 
     def execute(self):
         ex = self.match_obj
@@ -85,3 +87,6 @@ class MobileExitMatcher(BaseCommandMatcher):
                 return
             cmd = ExitCommand(enactor, found[0], self, obj_chain)
             return cmd
+
+    def populate_help(self, enactor, data):
+        data['Navigation'].add(ExitCommand)

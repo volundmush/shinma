@@ -1,6 +1,6 @@
 from . base import BaseTypeClass
-from .. mush.ansi import AnsiString
 from ..utils.styling import StyleHandler
+import time
 
 
 class ConnectionTypeClass(BaseTypeClass):
@@ -9,7 +9,6 @@ class ConnectionTypeClass(BaseTypeClass):
     prefix = "connection"
     class_initial_data = {
         "tags": ["connection"],
-        "locations": {"contents": {"WelcomeScreen": {"here": True}}}
     }
     command_families = ["connection"]
     base_style = None
@@ -20,6 +19,15 @@ class ConnectionTypeClass(BaseTypeClass):
         super().__init__(*args, **kwargs)
         self.connection = None
 
+    def init_attributes(self):
+        self.attributes.set('core', 'last_cmd', time.time())
+
+    def time_connected(self):
+        return time.time() - self.attributes.get('core', 'datetime_created')
+
+    def time_idle(self):
+        return time.time() - self.attributes.get('core', 'last_cmd')
+
     def receive_msg(self, message):
         if self.connection:
             message.send(self)
@@ -28,13 +36,21 @@ class ConnectionTypeClass(BaseTypeClass):
         return self.relations.get('account', None)
 
     def login(self, account):
+        a = account.connections.all()
         account.connections.add(self)
-        account.at_login(self)
+        if not account.attributes.get('core', 'last_login'):
+            self.core.engine.dispatch_module_event('core_account_at_first_login', account=account, connection=self)
+        account.attributes.set('core', 'last_login', time.time())
+        if not a:
+            self.core.engine.dispatch_module_event('core_account_at_cold_login', account=account, connection=self)
+        self.core.engine.dispatch_module_event('core_account_at_login', account=account, connection=self)
 
     def logout(self):
         if (account := self.relations.get('account', None)):
-            account.remove_connection(self)
-            account.at_logout(self)
+            account.connections.remove(self)
+            self.core.engine.dispatch_module_event('core_account_at_logout', account=account, connection=self)
+            if not (account.connections.all()):
+                self.core.engine.dispatch_module_event('core_account_at_complete_logout', account=account, connection=self)
 
     def get_width(self):
         if self.connection:
@@ -66,4 +82,5 @@ class ConnectionTypeClass(BaseTypeClass):
     def close_connection(self, reason: str = 'quit'):
         self.logout()
         self.leave()
-        self.core.close_connection(reason=reason)
+        self.core.delete(self)
+        self.core.engine.dispatch_module_event('net_connection_kick', id=self.objid, reason=reason)

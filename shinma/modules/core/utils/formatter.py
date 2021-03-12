@@ -1,5 +1,6 @@
 from ..mush.ansi import AnsiString
 from ..utils.evtable import EvTable as _EvTable
+from ..utils.text import tabular_table
 import math
 
 
@@ -125,6 +126,20 @@ class OOB(BaseFormatter):
     pass
 
 
+class TabularTable(BaseFormatter):
+
+    def __init__(self, word_list, field_width: int = 26, output_separator: str = ' ', truncate_elements: bool = True):
+        self.word_list = word_list
+        self.field_width = field_width
+        self.output_separator = output_separator
+        self.truncate_elements = truncate_elements
+
+    def render(self, formatter, obj):
+        return tabular_table(self.word_list, field_width=self.field_width, line_length=obj.get_width(),
+                             output_separator=self.output_separator, truncate_elements=self.truncate_elements)
+
+
+
 class Table(BaseFormatter):
 
     def __init__(self, *args, **kwargs):
@@ -166,8 +181,16 @@ class Table(BaseFormatter):
         border_top_char = AnsiString.from_args(border_color, self.b_top_char)
 
         width = obj.get_width()
+        column_names = list()
+        widths = dict()
+        for i, arg in enumerate(self.args):
+            if isinstance(arg, str):
+                column_names.append(arg)
+            else:
+                column_names.append(arg[0])
+                widths[i] = arg[1]
 
-        column_names = [AnsiString.from_args(column_color, arg) for arg in self.args]
+        column_names = [AnsiString.from_args(column_color, c) for c in column_names]
 
         #header_line_char = self.h_line_char
         #corner_char = self.c_char
@@ -185,24 +208,27 @@ class Table(BaseFormatter):
             border_bottom_char=border_bottom_char,
             **self.kwargs,
             maxwidth=width,
-            width=width
+            width=width,
         )
         for row in self.rows:
             table.add_row(*row)
 
-        # TODO: Some kind of formatting for widths?
+        for i, w in widths.items():
+            table.reformat_column(i, width=w)
 
         return table.to_ansistring()
 
 
 class FormatList:
-    __slots__ = ["source", "messages", "relay_chain", "kwargs"]
+    __slots__ = ["source", "messages", "relay_chain", "kwargs", 'disconnect', 'reason']
 
     def __init__(self, source, **kwargs):
         self.source = source
         self.messages = list()
         self.relay_chain = list()
         self.kwargs = kwargs
+        self.disconnect = False
+        self.reason = ''
 
     def relay(self, obj):
         c = self.__class__(self.source)
@@ -220,6 +246,8 @@ class FormatList:
         c = obj.connection
         if text:
             out['text'] = text.render(ansi=c.ansi, xterm256=c.xterm256, mxp=c.mxp)
+        if self.disconnect:
+            out['disconnect'] = self.reason
         c.msg(out)
 
     def add(self, fmt: BaseFormatter):

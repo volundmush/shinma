@@ -1,3 +1,4 @@
+import weakref
 from . attributes import AttributeHandler
 from . exception import GameObjectException
 
@@ -13,7 +14,7 @@ class GameObject:
         self.attributes = AttributeHandler(self)
         self.tags = dict()
         self.asset = asset
-        self.relations = dict()
+        self.relations = weakref.WeakValueDictionary()
         self.identity = None
         if initial_data is not None:
             self.initial_data = initial_data

@@ -232,7 +232,6 @@ class ANSITextWrapper(TextWrapper):
         # Arrange in reverse order so items can be efficiently popped
         # from a stack of chucks.
         chunks.reverse()
-
         while chunks:
 
             # Start the list of chunks that will make up the current line.
@@ -259,7 +258,8 @@ class ANSITextWrapper(TextWrapper):
 
                 # Can at least squeeze this chunk onto the current line.
                 if cur_len + l <= width:
-                    cur_line.append(chunks.pop())
+                    ch = chunks.pop()
+                    cur_line.append(ch)
                     cur_len += l
 
                 # Nope, this line is full.
@@ -270,7 +270,6 @@ class ANSITextWrapper(TextWrapper):
             # fit on *any* line (not just this one).
             if chunks and d_len(chunks[-1]) > width:
                 self._handle_long_word(chunks, cur_line, cur_len, width)
-
             # If the last chunk on this line is all whitespace, drop it.
             if self.drop_whitespace and cur_line and cur_line[-1].strip() == "":
                 del cur_line[-1]
@@ -278,10 +277,7 @@ class ANSITextWrapper(TextWrapper):
             # Convert current line back to a string and store it in list
             # of all lines (return value).
             if cur_line:
-                l = ""
-                for w in cur_line:  # ANSI fix
-                    l += w  #
-                lines.append(indent + l)
+                lines.append(indent + AnsiString().join(cur_line))
         return lines
 
 
