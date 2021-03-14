@@ -125,6 +125,7 @@ class Module(GameDBModule):
         }
         settings.CORE_WELCOMESCREEN = render_welcome_screen
         settings.CORE_SELECTSCREEN = render_select_screen
+        settings.CORE_DEFAULT_SLEVEL = 0
 
     def search_tag(self, tagname, text, exact=False):
         tag = self.get_tag(tagname)

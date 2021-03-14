@@ -260,6 +260,10 @@ class ImportCommand(Command):
     re_match = re.compile(r"^(?P<cmd>@import)(?: +(?P<args>.+)?)?", flags=re.IGNORECASE)
     help_category = 'System'
 
+    @classmethod
+    def access(cls, enactor):
+        return enactor.get_slevel() >= 10
+
     def execute(self):
         mdict = self.match_obj.groupdict()
         args = mdict.get("args", None)
@@ -304,6 +308,10 @@ class PyCommand(Command):
     name = '@py'
     re_match = re.compile(r"^(?P<cmd>@py)(?: +(?P<args>.+)?)?", flags=re.IGNORECASE)
     help_category = 'System'
+
+    @classmethod
+    def access(cls, enactor):
+        return enactor.get_slevel() >= 10
 
     def execute(self):
         mdict = self.match_obj.groupdict()

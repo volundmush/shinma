@@ -396,3 +396,9 @@ class BaseTypeClass(GameObject):
     @lazy_property
     def contents(self):
         return ReverseHandler(self, 'core', 'location', 'location')
+
+    def get_slevel(self):
+        if self.attributes.has('core', 'supervisor_level'):
+            return self.attributes.get('core', 'supervisor_level')
+        else:
+            return self.core.engine.settings.CORE_DEFAULT_SLEVEL

@@ -21,6 +21,32 @@ class ACreateCommand(MushCommand):
         name = self.gather_arg()
         password = self.gather_arg(noeval=True)
 
+    @classmethod
+    def access(cls, enactor):
+        return enactor.get_slevel() >= 8
+
+
+class BanCommand(MushCommand):
+    """
+    Bans an Account.
+
+    Usage:
+        @ban <name>=<duration>
+
+    If <duration> is 0, it will clear a ban.
+    """
+    name = '@ban'
+    aliases = ['@ba']
+    help_category = 'Account Management'
+
+    def execute(self):
+        name = self.gather_arg()
+        duration = self.gather_arg()
+
+    @classmethod
+    def access(cls, enactor):
+        return enactor.get_slevel() >= 8
+
 
 class ExamineCommand(MushCommand):
     name = '@examine'
@@ -88,6 +114,10 @@ class SLevelCommand(MushCommand):
     aliases = ['@sle', '@slev', '@sleve']
     help_category = 'Administration'
 
+    @classmethod
+    def access(cls, enactor):
+        return enactor.get_slevel() >= 6
+
 
 class StyleCommand(MushCommand):
     name = '@style'
@@ -99,6 +129,10 @@ class DumpCommand(MushCommand):
     name = '@dump'
     aliases = []
     help_category = 'System'
+
+    @classmethod
+    def access(cls, enactor):
+        return enactor.get_slevel() >= 9
 
     def execute(self):
         self.enactor.core.dump()

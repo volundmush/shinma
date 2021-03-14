@@ -84,3 +84,9 @@ class ConnectionTypeClass(BaseTypeClass):
         self.leave()
         self.core.delete(self)
         self.core.engine.dispatch_module_event('net_connection_kick', id=self.objid, reason=reason)
+
+    def get_slevel(self):
+        if (acc := self.relations.get('account', None)):
+            return acc.get_slevel()
+        else:
+            return super().get_slevel()

@@ -57,3 +57,8 @@ class PlayViewTypeClass(BaseTypeClass):
         if (conn := self.connections.all()):
             return time.time() - self.attributes.get('core', 'datetime_created')
         return -1
+
+    def get_slevel(self):
+        if (conn := self.connections.all()):
+            return max([c.get_slevel() for c in conn])
+        return super().get_slevel()

@@ -27,3 +27,8 @@ class MobileTypeClass(BaseTypeClass):
 
     def init_attributes(self):
         self.attributes.set('core', 'playtime', 0)
+
+    def get_slevel(self):
+        if (pview := self.playviews.all()):
+            return max([p.get_slevel() for p in pview])
+        return super().get_slevel()
