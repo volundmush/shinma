@@ -12,17 +12,14 @@ REG_BASIC_NAME = re.compile(r"(?s)^(\w|\.|-| |')+$")
 REG_EMAIL_NAME = re.compile(r"(?s)^(\w|\.|-| |'|@)+$")
 
 
-class Identity:
+class Namespace:
 
     def __init__(self, core, name, prefix, reg=None, priority=0):
         self.core = core
         self.name = name
         self.prefix = prefix
         self.priority = priority
-        if reg is None:
-            self.reg = REG_BASIC_NAME
-        else:
-            self.reg = reg
+        self.reg = REG_BASIC_NAME if reg is None else reg
         self.objects = weakref.WeakSet()
         self.aliases = weakref.WeakValueDictionary()
 
@@ -42,7 +39,9 @@ class Identity:
         return None, f"Sorry, nothing matches: {name}"
 
     def valid(self, name: str):
-        return self.reg.match(name)
+        data = self.reg.fullmatch(name)
+        print(f"{self.name} - {self.reg} Match for {name}? {data}")
+        return data
 
     def available(self, name: str, exclude=None):
         for obj in self.objects:
@@ -77,7 +76,7 @@ class Module(GameDBModule):
         engine.subscribe_event("core_load_functions", self.core_functions)
         engine.subscribe_event("core_load_styles", self.core_styles)
         engine.subscribe_event("core_load_options", self.core_options)
-        engine.subscribe_event('core_load_identities', self.core_identities)
+        engine.subscribe_event('core_load_namespaces', self.core_namespaces)
         engine.subscribe_event('core_object_setup_relations', self.core_object_setup_relations)
         self.cmdqueue = CmdQueue(self)
         self.cmdfamilies = dict()
@@ -88,8 +87,8 @@ class Module(GameDBModule):
         self.functions = dict()
         self.option_classes = dict()
         self.styles = dict()
-        self.identities = dict()
-        self.identity_prefix = dict()
+        self.namespaces = dict()
+        self.namespace_prefix = dict()
 
     def dump(self):
         with open('gamedb.json', 'w') as f:
@@ -282,44 +281,43 @@ class Module(GameDBModule):
                 pview.connections.add(obj)
                 obj.relations['playview'] = pview
 
-
-    def core_identities(self, event, *args, **kwargs):
-        identities = kwargs['identities']
-        identities['account'] = {
+    def core_namespaces(self, event, *args, **kwargs):
+        namespaces = kwargs['namespaces']
+        namespaces['account'] = {
             'prefix': 'A',
             'description': 'For Accounts',
             'priority': 10,
             'reg': REG_EMAIL_NAME
         }
-        identities['character'] = {
+        namespaces['character'] = {
             'prefix': 'C',
             'description': 'For Player Characters',
             'priority': 20
         }
-        identities['special'] = {
+        namespaces['special'] = {
             'prefix': 'S',
             'description': 'For special entities.',
             'priority': -9999999
         }
-        identities['faction'] = {
+        namespaces['faction'] = {
             'prefix': 'F',
             'description': 'For Factions',
             'priority': 0
         }
-        identities['theme'] = {
+        namespaces['theme'] = {
             'prefix': 'T',
             'description': 'For themes/settings.',
             'priority': 5
         }
 
     def load_identities(self):
-        identities = dict()
-        self.engine.dispatch_module_event('core_load_identities', identities=identities)
+        namespaces = dict()
+        self.engine.dispatch_module_event('core_load_namespaces', namespaces=namespaces)
 
-        for k, v in identities.items():
-            iden = Identity(self, k, prefix=v['prefix'], priority=v.get('priority', 0), reg=v.get('reg', None))
-            self.identities[k] = iden
-            self.identity_prefix[iden.prefix] = iden
+        for k, v in namespaces.items():
+            n = Namespace(self, k, prefix=v['prefix'], priority=v.get('priority', 0), reg=v.get('reg', None))
+            self.namespaces[k] = n
+            self.namespace_prefix[n.prefix] = n
 
     def setup(self):
         self.load_typeclasses()

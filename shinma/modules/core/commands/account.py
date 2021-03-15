@@ -1,12 +1,10 @@
 import re
-import sys
-import time
-import traceback
 from . base import MushCommand, CommandException, PythonCommandMatcher, Command
 from ..mush.ansi import AnsiString
 from shinma.utils import partial_match
 from ..utils import formatter as fmt
 from ..utils.text import duration_format, red_yellow_green, percent_cap
+from ..typeclasses.account import CRYPT_CON
 
 
 class ACreateCommand(MushCommand):
@@ -18,8 +16,19 @@ class ACreateCommand(MushCommand):
     help_category = 'Administration'
 
     def execute(self):
-        name = self.gather_arg()
+        name = self.gather_arg(stop_at='=')
+        name = name.clean
         password = self.gather_arg(noeval=True)
+        password = password.clean
+        if not (name and password):
+            raise CommandException("Usage: @acreate <name>=<password>")
+        hash = CRYPT_CON.hash(password)
+        namespace = self.enactor.core.namespace_prefix['A']
+        account, error = self.core.mapped_typeclasses["account"].create(name=name, namespace=namespace)
+        if error:
+            raise CommandException(error)
+        account.set_password(hash, nohash=True)
+        self.msg(text=f"Account {account.name} created!")
 
     @classmethod
     def access(cls, enactor):

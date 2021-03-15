@@ -54,16 +54,16 @@ class Importer:
         self.complete = set()
         self.obj_map = dict()
 
-    def create_obj(self, dbobj, mode, identity=None):
-        obj, error = self.core.mapped_typeclasses[mode].create(name=dbobj.name, objid=dbobj.objid, identity=identity)
+    def create_obj(self, dbobj, mode, namespace=None):
+        obj, error = self.core.mapped_typeclasses[mode].create(name=dbobj.name, objid=dbobj.objid, namespace=namespace)
         if error:
             print(f"OOPS: {error}")
         self.obj_map[dbobj.id] = obj
         return obj
 
-    def get_or_create_obj(self, dbobj, mode, identity=None):
+    def get_or_create_obj(self, dbobj, mode, namespace=None):
         if not (obj := self.obj_map.get(dbobj.id, None)):
-            obj = self.create_obj(dbobj, mode, identity=identity)
+            obj = self.create_obj(dbobj, mode, namespace=namespace)
             obj.attributes.set('core', 'datetime_created', dbobj.created)
             obj.attributes.set('core', 'datetime_modified', dbobj.modified)
             for k, v in dbobj.attributes.items():
@@ -135,24 +135,24 @@ class Importer:
         }
 
     def import_accounts(self):
-        namespace = self.core.identity_prefix['A']
+        namespace = self.core.namespace_prefix['A']
         data = self.db.list_accounts()
         total = list()
         for k, v in data.items():
-            obj = self.get_or_create_obj(v, 'account', identity=namespace)
+            obj = self.get_or_create_obj(v, 'account', namespace=namespace)
             obj.add_tag('penn_account')
             total.append(obj)
         return total
 
     def import_characters(self):
-        namespace = self.core.identity_prefix['C']
+        namespace = self.core.namespace_prefix['C']
         data = self.db.list_players()
         total = list()
         for k, v in data.items():
             if 'Guest' in v.powers:
                 # Filtering out guests.
                 continue
-            obj = self.get_or_create_obj(v, 'mobile', identity=namespace)
+            obj = self.get_or_create_obj(v, 'mobile', namespace=namespace)
             obj.attributes.set("core", "penn_hash", v.get('XYXXY').value.clean)
             if (account := self.obj_map.get(v.parent, None)):
                 # Hooray, we have an account!

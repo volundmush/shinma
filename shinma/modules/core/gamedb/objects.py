@@ -5,7 +5,7 @@ from . exception import GameObjectException
 
 class GameObject:
     core = None
-    __slots__ = ["name", "objid", "tags", "attributes", "initial_data", "aliases", "asset", 'relations', 'identity']
+    __slots__ = ["name", "objid", "tags", "attributes", "initial_data", "aliases", "asset", 'relations', 'namespace']
 
     def __init__(self, objid: str, name: str, initial_data=None, asset: bool = False):
         self.name = name
@@ -15,7 +15,7 @@ class GameObject:
         self.tags = dict()
         self.asset = asset
         self.relations = weakref.WeakValueDictionary()
-        self.identity = None
+        self.namespace = None
         if initial_data is not None:
             self.initial_data = initial_data
         else:

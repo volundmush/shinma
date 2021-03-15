@@ -152,7 +152,7 @@ class BaseTypeClass(GameObject):
         return attempt
 
     @classmethod
-    def create(cls, name: str = None, objid=None, prefix=None, initial_data=None, asset=False, timestamp=None, identity=None):
+    def create(cls, name: str = None, objid=None, prefix=None, initial_data=None, asset=False, timestamp=None, namespace=None):
         if objid is None:
             objid = cls.generate_id(prefix)
         if name is None:
@@ -160,10 +160,10 @@ class BaseTypeClass(GameObject):
         if initial_data is None:
             initial_data = cls.class_initial_data
         try:
-            if identity:
-                if not identity.valid(name):
-                    return None, f"{name} is not a valid name for a {identity.name}"
-                if not identity.available(name):
+            if namespace:
+                if not namespace.valid(name):
+                    return None, f"{name} is not a valid name for a {namespace.name}"
+                if not namespace.available(name):
                     return None, f"The name {name} is already in use."
             obj = cls(objid, name, initial_data=initial_data, asset=asset)
             cls.core.objects[objid] = obj
@@ -172,9 +172,9 @@ class BaseTypeClass(GameObject):
                 timestamp = time.time()
             obj.attributes.set('core', 'datetime_created', timestamp)
             obj.attributes.set('core', 'datetime_modified', timestamp)
-            if identity:
-                obj.identity = identity
-                identity.objects.add(obj)
+            if namespace:
+                obj.namespace = namespace
+                namespace.objects.add(obj)
             obj.init_attributes()
             obj.setup_relations()
         except GameObjectException as e:

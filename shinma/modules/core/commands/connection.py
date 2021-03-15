@@ -79,8 +79,8 @@ class CreateCommand(_LoginCommand):
     def execute(self):
         name, password = self.parse_login(self.usage)
         pass_hash = CRYPT_CON.hash(password)
-        identity = self.enactor.core.identity_prefix['A']
-        account, error = self.core.mapped_typeclasses["account"].create(name=name, identity=identity)
+        namespace = self.enactor.core.namespace_prefix['A']
+        account, error = self.core.mapped_typeclasses["account"].create(name=name, namespace=namespace)
         if error:
             raise CommandException(error)
         account.set_password(pass_hash, nohash=True)
@@ -262,7 +262,7 @@ class ImportCommand(Command):
 
     @classmethod
     def access(cls, enactor):
-        return enactor.get_slevel() >= 10
+        return True
 
     def execute(self):
         mdict = self.match_obj.groupdict()
